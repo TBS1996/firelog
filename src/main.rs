@@ -34,6 +34,7 @@ fn App() -> Element {
 fn task_props() -> Vec<TaskProp> {
     let mut tasks = load_tasks();
     tasks.sort_by_key(|task| (task.priority() * 1000.) as u32);
+    tasks.reverse();
     let tasks: Vec<TaskProp> = tasks.iter().map(|task| TaskProp::from_task(task)).collect();
     tasks
 }
@@ -105,7 +106,7 @@ fn Home() -> Element {
                     { "length" }
                     input {
                         r#type: "number",
-                        min: "0",
+                        min: "1",
                         required: true,
                         step: "any",
                         name: "length",
@@ -119,7 +120,7 @@ fn Home() -> Element {
                     { "interval" }
                     input {
                         r#type: "number",
-                        min: "0",
+                        min: "0.01",
                         required: true,
                         step: "any",
                         name: "interval",
@@ -220,10 +221,8 @@ impl LogPriority {
 
     fn ab(unity: f32, twonity: f32) -> (f32, f32) {
         let common = Self::common_factor(unity, twonity);
-        dbg!(common);
         let a = common;
         let b = unity * common + 1.;
-        dbg!(b);
         (a, b)
     }
 
