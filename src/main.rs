@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 
 use dioxus::prelude::*;
+use futures::executor::block_on;
 use js_sys::Date;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -9,6 +10,8 @@ use wasm_bindgen::prelude::*;
 use web_sys::console;
 
 type UnixTime = Duration;
+
+const DEFAULT_SLOPE: f32 = std::f32::consts::E + 1.;
 
 #[derive(Clone, Routable, Debug, PartialEq)]
 enum Route {
@@ -47,8 +50,6 @@ fn tot_value_since() -> f32 {
     value
 }
 
-use futures::executor::block_on;
-
 #[component]
 fn Home() -> Element {
     let mut name = use_signal(|| String::new());
@@ -75,9 +76,11 @@ fn Home() -> Element {
                 log_to_console(&task);
 
                 if let Some(task) = task {
-                    let mut tasks = load_tasks();
-                    tasks.push(task);
-                    save_tasks(tasks);
+                    let mut the_tasks = load_tasks();
+                    the_tasks.push(task);
+                    save_tasks(the_tasks);
+                    tasks.set(task_props());
+                    value_stuff.set(tot_value_since());
                 }
 
             },
@@ -130,7 +133,6 @@ fn Home() -> Element {
                     { "value" }
                     input {
                         r#type: "number",
-                        min: "0",
                         required: true,
                         name: "factor",
                         value: factor(),
@@ -188,21 +190,11 @@ fn Home() -> Element {
                         },
                         "✅"
                     }
-                    div { "name: {task.name}   hourly wage: {task.priority}" }
+                    div { "{task.priority} {task.name}" }
                 }
             }
         }
     }
-}
-
-fn min_dur(mins: f32) -> Duration {
-    let secs = mins * 60.;
-    Duration::from_secs_f32(secs)
-}
-
-fn day_dur(days: f32) -> Duration {
-    let secs = days * 86400.;
-    Duration::from_secs_f32(secs)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -217,7 +209,7 @@ impl LogPriority {
         Self {
             interval,
             factor,
-            slope: Slope::Normal.factor(),
+            slope: DEFAULT_SLOPE,
         }
     }
 
@@ -248,12 +240,14 @@ impl LogPriority {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ValueEq {
     Log(LogPriority),
+    Const(f32),
 }
 
 impl ValueEq {
     fn value(&self, t: Duration) -> f32 {
         match self {
             Self::Log(log) => log.value(t),
+            Self::Const(f) => *f,
         }
     }
 }
@@ -362,24 +356,6 @@ impl Task {
     }
 }
 
-#[derive(Debug)]
-enum Slope {
-    Linear,
-    Normal,
-    Steep,
-}
-
-impl Slope {
-    fn factor(&self) -> f32 {
-        let e = std::f32::consts::E;
-        match self {
-            Slope::Linear => e - 0.5,
-            Slope::Normal => e + 1.,
-            Slope::Steep => e + 100.,
-        }
-    }
-}
-
 pub fn current_time() -> UnixTime {
     let date = Date::new_0();
     let milliseconds_since_epoch = date.get_time() as u64;
@@ -427,7 +403,10 @@ async fn fetch_tasks() -> Vec<Task> {
     .await
     .unwrap();
 
-    serde_json::from_str(eval.as_str().unwrap()).unwrap()
+    match eval.as_str() {
+        Some(str) => serde_json::from_str(str).unwrap_or_default(),
+        None => vec![],
+    }
 }
 
 fn save_tasks(tasks: Vec<Task>) {
@@ -441,7 +420,7 @@ fn save_tasks(tasks: Vec<Task>) {
 #[derive(Props, PartialEq, Clone)]
 struct TaskProp {
     name: String,
-    priority: f32,
+    priority: String,
     created: UnixTime,
 }
 
@@ -449,58 +428,8 @@ impl TaskProp {
     fn from_task(task: &Task) -> Self {
         Self {
             name: task.name.clone(),
-            priority: task.priority(),
+            priority: format!("{:.2}", task.priority()),
             created: task.created,
         }
     }
 }
-
-/*
-#[derive(Debug, PartialEq, Clone)]
-pub struct Message {
-    pub origin: String,
-    pub content: String,
-}
-
-impl Message {
-    pub fn new(origin: String, content: String) -> Self {
-        Self { origin, content }
-    }
-}
-
-#[derive(Props, PartialEq, Clone)]
-struct MessageProps {
-    class: &'static str,
-    sender: &'static str,
-    content: String,
-}
-
-fn Message(msg: MessageProps) -> Element {
-    rsx!(
-        div {
-            class: "{msg.class}",
-            strong { "{msg.sender}" }
-            span { "{msg.content}" }
-        }
-    )
-}
-
-#[derive(Props, PartialEq, Clone)]
-pub struct MessageListProps {
-    messages: Vec<Message>,
-}
-
-pub fn MessageList(mut msgs: MessageListProps) -> Element {
-    msgs.messages.reverse();
-    rsx!(
-        div {
-            class: "message-list",
-            display: "flex",
-            flex_direction: "column-reverse",
-            for msg in msgs.messages{
-                Message {class: msg.origin.class(), sender: msg.origin.str(), content: msg.content}
-            }
-        }
-    )
-}
-*/
