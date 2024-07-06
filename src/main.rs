@@ -20,7 +20,6 @@ enum Route {
 }
 
 fn main() {
-    // Init logger
     dioxus_logger::init(Level::INFO).expect("failed to init logger");
     launch(App);
 }
