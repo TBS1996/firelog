@@ -26,6 +26,7 @@ input {
     border-radius: 1vh;
     border-color: lightskyblue;
     border-style: solid;
+    max-width: 80px;
 }
 
 input[type=number]::-webkit-outer-spin-button,

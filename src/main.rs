@@ -3,15 +3,212 @@
 use dioxus::prelude::*;
 use futures::executor::block_on;
 use js_sys::Date;
+use js_sys::Promise;
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::Level;
+use uuid::Uuid;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::JsFuture;
 use web_sys::console;
 
 type UnixTime = Duration;
 
 const DEFAULT_SLOPE: f32 = std::f32::consts::E + 1.;
+
+#[wasm_bindgen(module = "/assets/firestore.js")]
+extern "C" {
+    fn upsertFirestoreTask(id: &JsValue, task: &JsValue) -> Promise;
+    fn loadAllTasks() -> Promise;
+    fn addFirestoreTaskLog(task_id: &JsValue, log_id: &JsValue) -> Promise;
+    fn loadLogsForTask(task_id: &JsValue) -> Promise;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TaskLog {
+    task_id: Uuid,
+    timestamp: UnixTime,
+}
+
+async fn load_logs_for_task(task_id: Uuid) -> JsFuture {
+    let task_id_str = task_id.to_string();
+    let task_id = JsValue::from_str(&task_id_str);
+
+    let promise = loadLogsForTask(&task_id);
+    wasm_bindgen_futures::JsFuture::from(promise)
+}
+
+fn add_task_log_to_firestore(task_id: Uuid, timestamp: UnixTime) -> JsFuture {
+    let task_id_str = task_id.to_string();
+    let log_id_str = timestamp.as_secs().to_string();
+
+    let task_id = JsValue::from_str(&task_id_str);
+    let log_id = JsValue::from_str(&log_id_str);
+
+    let promise = addFirestoreTaskLog(&task_id, &log_id);
+
+    wasm_bindgen_futures::JsFuture::from(promise)
+}
+
+#[derive(Default, Debug)]
+struct Syncer {
+    pairs: Vec<(Task, FireTask)>,
+    new_from_server: Vec<FireTask>,
+    new_offline: Vec<Task>,
+}
+
+impl Syncer {
+    fn new(mut online: Vec<FireTask>, offline: Vec<Task>) -> Self {
+        let mut selv = Self::default();
+        for off_task in offline {
+            let pos = online.iter().position(|ontask| ontask.id == off_task.id);
+            match pos {
+                Some(pos) => {
+                    let ontask = online.remove(pos);
+                    selv.pairs.push((off_task, ontask));
+                }
+                None => {
+                    selv.new_offline.push(off_task);
+                }
+            };
+        }
+
+        selv.new_from_server = online;
+
+        selv
+    }
+
+    fn sync(self) -> (Vec<Task>, Vec<JsFuture>, Vec<FireTask>) {
+        log("lets sync");
+        log(&self);
+        let mut offline_tasks = vec![];
+        let mut new_tasks = vec![];
+        let mut futures = vec![];
+        log("lol");
+        for (off, on) in self.pairs {
+            log("hey");
+            if off.updated > on.updated {
+                let future = send_task_to_firestore(&off);
+                futures.push(future);
+            } else {
+                log("nope");
+            }
+            offline_tasks.push(off);
+        }
+
+        for task in self.new_from_server {
+            log(("from server: ", &task));
+            new_tasks.push(task);
+        }
+
+        for task in self.new_offline {
+            let future = send_task_to_firestore(&task);
+            futures.push(future);
+            offline_tasks.push(task);
+        }
+
+        (offline_tasks, futures, new_tasks)
+    }
+}
+
+fn sync_tasks() {
+    let task_future = wasm_bindgen_futures::JsFuture::from(loadAllTasks());
+    //let online_tasks = load_online_tasks_blocking();
+    let offline_tasks = load_tasks();
+
+    wasm_bindgen_futures::spawn_local(async {
+        let online_tasks = {
+            let x = task_future.await.unwrap();
+            let x: serde_json::Value = serde_wasm_bindgen::from_value(x).unwrap();
+            let x = x.as_array().unwrap();
+
+            let mut online_tasks = vec![];
+
+            for y in x {
+                let task = y.get("task").unwrap().as_str().unwrap();
+                let task: FireTask = serde_json::from_str(&task).unwrap();
+                online_tasks.push(task);
+            }
+
+            online_tasks
+        };
+
+        let (mut offtask, futures, newtasks) = Syncer::new(online_tasks, offline_tasks).sync();
+
+        for future in futures {
+            future.await.unwrap();
+        }
+
+        for task in newtasks {
+            let x = load_logs_for_task(task.id).await.await.unwrap();
+
+            let mut logs = vec![];
+            let val: serde_json::Value = serde_wasm_bindgen::from_value(x.clone()).unwrap();
+            let mm = val.as_array().unwrap().clone();
+
+            for x in mm {
+                let ts: u64 = x
+                    .as_object()
+                    .unwrap()
+                    .get("timestamp")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+
+                let ts = UnixTime::from_secs(ts);
+                logs.push(ts);
+            }
+
+            logs.sort();
+
+            let t = Task {
+                name: task.name,
+                value: task.value,
+                length: task.length,
+                created: task.created,
+                updated: task.updated,
+                id: task.id,
+                log: logs,
+            };
+
+            offtask.push(t);
+        }
+
+        for task in &offtask {
+            for log in &task.log {
+                add_task_log_to_firestore(task.id, *log).await.unwrap();
+            }
+        }
+
+        save_tasks(offtask);
+    });
+}
+
+// Create a Rust function to send data to Firestore
+fn send_task_to_firestore(task: &Task) -> JsFuture {
+    let (task, id) = FireTask::new(task);
+    let taskstr = serde_json::to_string(&task).unwrap();
+
+    let task = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &task,
+        &JsValue::from_str("task"),
+        &JsValue::from_str(&taskstr),
+    )
+    .unwrap();
+
+    let idstr = serde_json::to_string(&id).unwrap();
+
+    let id = JsValue::from_str(&idstr);
+
+    // Call the JavaScript function
+    // let promise = upsertFirestoreTask(&task, &id);
+    let promise = upsertFirestoreTask(&id, &task);
+    let future = wasm_bindgen_futures::JsFuture::from(promise);
+    future
+}
 
 #[derive(Clone, Routable, Debug, PartialEq)]
 enum Route {
@@ -25,6 +222,7 @@ fn main() {
 }
 
 fn App() -> Element {
+    //sync_tasks();
     rsx! {
         Router::<Route> {}
     }
@@ -50,21 +248,18 @@ fn tot_value_since() -> f32 {
     value
 }
 
-#[component]
-fn Home() -> Element {
-    let mut name = use_signal(|| String::new());
-    let mut length = use_signal(|| String::new());
-    let mut interval = use_signal(|| String::new());
-    let mut factor = use_signal(|| String::new());
-    let mut tasks = use_signal(|| task_props());
-    let mut value_stuff = use_signal(|| tot_value_since());
-
+fn form(
+    mut name: Signal<String>,
+    mut length: Signal<String>,
+    mut interval: Signal<String>,
+    mut factor: Signal<String>,
+    mut tasks: Signal<Vec<TaskProp>>,
+    mut value_stuff: Signal<f32>,
+) -> Element {
     rsx! {
-
         form {
             display: "flex",
             flex_direction: "row",
-
             onsubmit: move |event| {
                 name.set(String::new());
                 length.set(String::new());
@@ -76,6 +271,11 @@ fn Home() -> Element {
                 log_to_console(&task);
 
                 if let Some(task) = task {
+                    let future = send_task_to_firestore(&task);
+                    wasm_bindgen_futures::spawn_local(async {
+                        future.await.unwrap();
+                    });
+
                     let mut the_tasks = load_tasks();
                     the_tasks.push(task);
                     save_tasks(the_tasks);
@@ -90,7 +290,9 @@ fn Home() -> Element {
                 flex_direction: "column",
 
                 div {
+                    display: "flex",
                     flex_direction: "row",
+                    justify_content: "space-between",
                     { "name" }
                     input {
                         r#type: "text",
@@ -102,6 +304,8 @@ fn Home() -> Element {
                 }
                 div {
                     flex_direction: "row",
+                    display: "flex",
+                    justify_content: "space-between",
                     { "length" }
                     input {
                         r#type: "number",
@@ -115,7 +319,9 @@ fn Home() -> Element {
                     }
                 }
                 div {
+                    display: "flex",
                     flex_direction: "row",
+                    justify_content: "space-between",
                     { "interval" }
                     input {
                         r#type: "number",
@@ -129,7 +335,9 @@ fn Home() -> Element {
                     }
                 }
                 div {
+                    display: "flex",
                     flex_direction: "row",
+                    justify_content: "space-between",
                     { "value" }
                     input {
                         r#type: "number",
@@ -147,50 +355,76 @@ fn Home() -> Element {
                 }
             }
         }
+    }
+}
 
+#[component]
+fn Home() -> Element {
+    let name = use_signal(|| String::new());
+    let length = use_signal(|| String::new());
+    let interval = use_signal(|| String::new());
+    let factor = use_signal(|| String::new());
+    let mut tasks = use_signal(|| task_props());
+    let mut value_stuff = use_signal(|| tot_value_since());
+
+    rsx! {
         div {
             display: "flex",
-            flex_direction: "row",
+            justify_content: "center",
+            align_items: "center",
+            height: "100vh",
 
-            button {
-                onclick: move |_| {
-                    tasks.set(task_props());
-                    value_stuff.set(tot_value_since());
-                },
-                "🔄"
-            }
-            div {"value last 24 hours: {value_stuff}"}
+            div {
+                background_color: "lightblue",
+                padding: "20px",
+                { form(name, length, interval, factor, tasks, value_stuff) }
 
-        }
-
-        div {
-            display: "flex",
-            flex_direction: "column",
-            padding: "5px",
-
-            for task in tasks() {
                 div {
                     display: "flex",
                     flex_direction: "row",
 
                     button {
                         onclick: move |_| {
-                            Task::delete_task(task.created);
                             tasks.set(task_props());
                             value_stuff.set(tot_value_since());
+                            sync_tasks();
                         },
-                        "❌"
+                        "🔄"
                     }
-                    button {
-                        onclick: move |_| {
-                            log_to_console(&task.name);
-                            Task::do_task(task.created);
-                            tasks.set(task_props());
-                            value_stuff.set(tot_value_since());
-                        },
-                        "✅"
+                    div {"value last 24 hours: {value_stuff}"}
+
+                }
+
+                div {
+                    display: "flex",
+                    flex_direction: "column",
+                    padding: "5px",
+
+                    for task in tasks() {
+                        div {
+                            display: "flex",
+                            flex_direction: "row",
+
+                            button {
+                                onclick: move |_| {
+                                    Task::delete_task(task.id);
+                                    tasks.set(task_props());
+                                    value_stuff.set(tot_value_since());
+                                },
+                                "❌"
+                            }
+                            button {
+                                onclick: move |_| {
+                                    log_to_console(&task.name);
+                                    Task::do_task(task.id);
+                                    tasks.set(task_props());
+                                    value_stuff.set(tot_value_since());
+                                },
+                                "✅"
+                            }
+                            div { "{task.priority} {task.name}" }
+                        }
                     }
-                    div { "{task.priority} {task.name}" }
                 }
             }
         }
@@ -252,39 +486,82 @@ impl ValueEq {
 
 use serde::{Deserialize, Serialize};
 
+/// The way the firetask thing is stored in firesore.
+/// so yeah, basically same but without the log and id. Cause log is stored separately
+/// and id is the key in the store so no need for that to be here lol.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FireTask {
+    name: String,
+    value: ValueEq,
+    length: Duration,
+    created: UnixTime,
+    updated: UnixTime,
+    id: Uuid,
+}
+
+impl FireTask {
+    fn new(task: &Task) -> (Self, Uuid) {
+        let selv = Self {
+            name: task.name.clone(),
+            value: task.value.clone(),
+            length: task.length,
+            created: task.created,
+            updated: task.updated,
+            id: task.id,
+        };
+
+        (selv, task.id)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Task {
     name: String,
     value: ValueEq,
     length: Duration,
     created: UnixTime,
+    updated: UnixTime,
     log: Vec<UnixTime>,
+    id: Uuid,
 }
 
 impl Task {
     fn new(name: impl Into<String>, equation: LogPriority, length: Duration) -> Self {
+        let time = current_time();
         Self {
             name: name.into(),
-            created: current_time(),
+            created: time,
+            updated: time,
             log: vec![],
             value: ValueEq::Log(equation),
             length,
+            id: Uuid::new_v4(),
         }
     }
 
-    fn delete_task(id: UnixTime) {
+    fn delete_task(id: Uuid) {
         let mut tasks = load_tasks();
-        tasks.retain(|task| task.created != id);
+        tasks.retain(|task| task.id != id);
         save_tasks(tasks);
     }
 
-    fn do_task(id: UnixTime) {
+    fn do_task(id: Uuid) {
+        let current = current_time();
         let mut tasks = load_tasks();
         for task in tasks.iter_mut() {
-            if task.created == id {
-                task.log.push(current_time());
+            if task.id == id {
+                task.log.push(current);
             }
         }
+
+        let future = add_task_log_to_firestore(id, current);
+        wasm_bindgen_futures::spawn_local(async {
+            match future.await {
+                Ok(_) => web_sys::console::log_1(&JsValue::from_str("Log added successfully")),
+                Err(e) => web_sys::console::log_1(&e),
+            }
+        });
+
         save_tasks(tasks);
     }
 
@@ -313,7 +590,6 @@ impl Task {
     /// Hourly wage
     fn priority(&self) -> f32 {
         let t = self.time_since_last_completion();
-        log_to_console(("time since", &t));
 
         let val = self.value.value(t);
         let hour_length = self.length.as_secs_f32() / 3600.;
@@ -325,13 +601,10 @@ impl Task {
     }
 
     fn last_completed(&self) -> UnixTime {
-        log_to_console(("log: ", &self.log));
-        log_to_console(("created: ", &self.created));
         let last = match self.log.last() {
             Some(time) => *time,
             None => self.created,
         };
-        log_to_console(("last completed: ", &last));
         last
     }
 
@@ -358,23 +631,11 @@ pub fn current_time() -> UnixTime {
     let date = Date::new_0();
     let milliseconds_since_epoch = date.get_time() as u64;
     let seconds_since_epoch = milliseconds_since_epoch / 1000;
-    log_to_console(&seconds_since_epoch);
     UnixTime::from_secs(seconds_since_epoch)
 }
 
-pub trait Value {
-    fn value(&self, t: Duration) -> f32;
-}
-
-impl Value for LogPriority {
-    fn value(&self, t: Duration) -> f32 {
-        let t = t.as_secs_f32() / 86400.;
-        let t1 = self.interval.as_secs_f32() / 86400.;
-        let t2 = t1 * self.slope;
-
-        let (a, b) = Self::ab(t1, t2);
-        (a * t + 1.).log(b) * self.factor
-    }
+pub fn log(message: impl std::fmt::Debug) {
+    log_to_console(message);
 }
 
 pub fn log_to_console(message: impl std::fmt::Debug) {
@@ -386,40 +647,61 @@ fn load_tasks() -> Vec<Task> {
     block_on(fetch_tasks())
 }
 
-async fn fetch_tasks() -> Vec<Task> {
-    let eval = eval(
-        r#"
-        let id = localStorage.getItem('tasks');
-        if (id) {
-            dioxus.send(id);
-        } else {
-            dioxus.send(null);
-        }
-        "#,
-    )
-    .recv()
-    .await
-    .unwrap();
+use web_sys::{window, Storage};
 
-    match eval.as_str() {
-        Some(str) => serde_json::from_str(str).unwrap_or_default(),
-        None => vec![],
+async fn fetch_tasks() -> Vec<Task> {
+    log_to_console("Starting fetch_tasks");
+
+    let storage: Storage = window()
+        .expect("no global `window` exists")
+        .local_storage()
+        .expect("no local storage")
+        .expect("local storage unavailable");
+
+    let tasks_str = storage.get_item("tasks").unwrap_or_else(|_| {
+        log_to_console("Error retrieving item from local storage");
+        None
+    });
+
+    log(&tasks_str);
+
+    log_to_console("Completed localStorage call");
+
+    match tasks_str {
+        Some(str) => {
+            log_to_console(&format!("String from localStorage: {}", str));
+            serde_json::from_str(&str).unwrap_or_else(|e| {
+                log_to_console(&format!("Deserialization error: {:?}", e));
+                vec![]
+            })
+        }
+        None => {
+            log_to_console("No tasks found in localStorage");
+            vec![]
+        }
     }
 }
 
 fn save_tasks(tasks: Vec<Task>) {
+    log("starting save tasks");
     let s = serde_json::to_string(&tasks).unwrap();
+    let storage: Storage = window()
+        .expect("no global `window` exists")
+        .local_storage()
+        .expect("no local storage")
+        .expect("local storage unavailable");
 
-    let script = format!("localStorage.setItem('tasks', '{}');", s);
-    eval(&script);
-    log_to_console("storing user_id in local storage");
+    storage
+        .set_item("tasks", &s)
+        .expect("Unable to set item in local storage");
+    log_to_console("Stored tasks in local storage");
 }
 
 #[derive(Props, PartialEq, Clone)]
 struct TaskProp {
     name: String,
     priority: String,
-    created: UnixTime,
+    id: Uuid,
 }
 
 impl TaskProp {
@@ -427,7 +709,7 @@ impl TaskProp {
         Self {
             name: task.name.clone(),
             priority: format!("{:.2}", task.priority()),
-            created: task.created,
+            id: task.id,
         }
     }
 }
