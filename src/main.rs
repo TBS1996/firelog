@@ -251,7 +251,8 @@ enum Route {
     Home {},
     #[route("/new")]
     New {},
-    #[route("/wtf")]
+    #[route("/edit/:id")]
+    Edit { id: Uuid },
 }
 
 fn main() {
@@ -286,50 +287,22 @@ fn tot_value_since() -> f32 {
     value
 }
 
-
 #[component]
-fn Bar() -> Element {
-    //    let navigator = use_navigator();
-    rsx! {
-        Link { to: Route::Foo {}, "Home" }
-    }
-}
+fn Edit(id: Uuid) -> Element {
+    let mut name = Signal::new(String::new());
+    let mut length = Signal::new(String::new());
+    let mut interval = Signal::new(String::new());
+    let mut factor = Signal::new(String::new());
 
+    let mut task = Task::get_task(id).unwrap();
+    let xinterval = task.interval();
+    let xfactor = task.factor();
 
-#[component]
-fn Foo() -> Element {
-    //    let navigator = use_navigator();
-    rsx! {
-        Link { to: Route::Bar {}, "Home" }
-    }
-}
-
-#[component]
-fn Wtf() -> Element {
-    //    let navigator = use_navigator();
-    rsx! {
-        Link { to: Route::Wtf {}, "Home" }
-    }
-}
-
-
-
-#[component]
-fn New() -> Element {
-    let state = use_context::<State>();
-
-
-    let mut name = state.inner.lock().unwrap().name.clone();
-    let mut length = state.inner.lock().unwrap().length.clone();
-    let mut interval = state.inner.lock().unwrap().interval.clone();
-    let mut factor = state.inner.lock().unwrap().factor.clone();
-
-
-
-    log("neww");
-
+    let mut oldtask = task.clone();
+    log(&oldtask);
 
     rsx! {
+
 
         div {
             display: "flex",
@@ -347,6 +320,149 @@ fn New() -> Element {
 
 
 
+        form {
+            display: "flex",
+            flex_direction: "row",
+            onsubmit: move |event| {
+                let data = event.data().values();
+                log("submitting!");
+                let newtask = Task::from_form(data);
+
+                if let Some(newtask) = newtask {
+                log("success!");
+                    oldtask.set_factor(newtask.factor());
+                    oldtask.set_interval(newtask.interval());
+                    oldtask.name = newtask.name;
+                    oldtask.length = newtask.length;
+                    oldtask.updated = current_time();
+
+                    let mut all_tasks = load_tasks_map();
+                    all_tasks.insert(id, oldtask.clone());
+                    save_tasks_map(all_tasks);
+                } else {
+
+                log("fail!");
+                };
+
+            },
+            div {
+                class: "input-group",
+                display: "flex",
+                flex_direction: "column",
+
+
+
+                div {
+                    display: "flex",
+                    flex_direction: "row",
+                    justify_content: "space-between",
+                    { "name" }
+                    input {
+                        r#type: "text",
+                        value: task.name,
+                        name: "name",
+                        autocomplete: "off",
+                        oninput: move |event| name.set(event.value()),
+                    }
+                }
+
+                div {
+                    flex_direction: "row",
+                    display: "flex",
+                    justify_content: "space-between",
+                    { "length" }
+                    input {
+                        r#type: "number",
+                        min: "1",
+                        step: "any",
+                        name: "length",
+                        value: dur_to_mins(task.length),
+                        autocomplete: "off",
+                        oninput: move |event| length.set(event.value()),
+                    }
+                }
+
+                div {
+                    display: "flex",
+                    flex_direction: "row",
+                    justify_content: "space-between",
+                    { "interval" }
+                    input {
+                        r#type: "number",
+                        min: "0.01",
+                        step: "any",
+                        name: "interval",
+                        value: dur_to_days(xinterval),
+                        autocomplete: "off",
+                        oninput: move |event| interval.set(event.value()),
+                    }
+                }
+
+
+                div {
+                    display: "flex",
+                    flex_direction: "row",
+                    justify_content: "space-between",
+                    { "value" }
+                    input {
+                        r#type: "number",
+                        name: "factor",
+                        value: xfactor.to_string(),
+                        autocomplete: "off",
+                        oninput: move |event| factor.set(event.value()),
+                    }
+                }
+
+                button {
+                    r#type: "submit",
+                    class: "confirm",
+                    "Update task"
+                }
+           }
+
+
+
+        }
+
+            }
+        }
+
+    }
+}
+
+fn dur_to_days(dur: Duration) -> String {
+    format!("{:.1}", dur.as_secs_f32() / 86400.)
+}
+
+fn dur_to_mins(dur: Duration) -> String {
+    (dur.as_secs() / 60).to_string()
+}
+
+#[component]
+fn New() -> Element {
+    let state = use_context::<State>();
+
+    let mut name = state.inner.lock().unwrap().name.clone();
+    let mut length = state.inner.lock().unwrap().length.clone();
+    let mut interval = state.inner.lock().unwrap().interval.clone();
+    let mut factor = state.inner.lock().unwrap().factor.clone();
+
+    log("neww");
+
+    rsx! {
+
+        div {
+            display: "flex",
+            justify_content: "center",
+            align_items: "center",
+            height: "100vh",
+
+
+            div {
+                background_color: "lightblue",
+                padding: "20px",
+
+            Link { to: Route::Home {}, "back" }
 
 
         form {
@@ -388,8 +504,8 @@ fn New() -> Element {
                     { "name" }
                     input {
                         r#type: "text",
-                        name: "name",
                         value: name(),
+                        name: "name",
                         autocomplete: "off",
                         oninput: move |event| name.set(event.value()),
                     }
@@ -455,12 +571,11 @@ fn New() -> Element {
     }
 }
 
-
 #[component]
 fn Home() -> Element {
     let state = use_context::<State>();
     log("111");
-//    let navigator = navigator();
+    //    let navigator = navigator();
     log("211");
 
     log("311");
@@ -469,7 +584,6 @@ fn Home() -> Element {
     let mut value_stuff = state.inner.lock().unwrap().value_stuff.clone();
     log("411");
     log("511");
-
 
     rsx! {
         div {
@@ -531,7 +645,8 @@ fn Home() -> Element {
                                 },
                                 "✅"
                             }
-                            div { "{task.priority} {task.name}" }
+
+                            Link { to: Route::Edit {id: task.id}, "{task.priority} {task.name}" }
                         }
                     }
                 }
@@ -648,6 +763,40 @@ impl Task {
         }
     }
 
+    fn set_interval(&mut self, interval: Duration) {
+        if let ValueEq::Log(ref mut l) = &mut self.value {
+            l.interval = interval;
+            return;
+        }
+
+        panic!();
+    }
+
+    fn set_factor(&mut self, factor: f32) {
+        if let ValueEq::Log(ref mut l) = &mut self.value {
+            l.factor = factor;
+            return;
+        }
+
+        panic!();
+    }
+
+    fn factor(&self) -> f32 {
+        if let ValueEq::Log(l) = &self.value {
+            return l.factor;
+        }
+
+        panic!();
+    }
+
+    fn interval(&self) -> Duration {
+        if let ValueEq::Log(l) = &self.value {
+            return l.interval;
+        }
+
+        panic!();
+    }
+
     fn delete_task(id: Uuid) {
         let mut tasks = load_tasks();
         tasks.retain(|task| task.id != id);
@@ -675,23 +824,29 @@ impl Task {
     }
 
     fn from_form(form: HashMap<String, FormValue>) -> Option<Self> {
+        log("name");
         let name = form.get("name")?.as_value();
+        log("factor");
 
         let factor: f32 = form.get("factor")?.as_value().parse().ok()?;
+        log("interval");
 
         let interval = {
             let interval = form.get("interval")?.as_value();
             let days: f32 = interval.parse().ok()?;
             Duration::from_secs_f32(days * 86400.)
         };
+        log("length");
 
         let length = {
             let length = form.get("length")?.as_value();
             let mins: f32 = length.parse().ok()?;
             Duration::from_secs_f32(mins * 60.)
         };
+        log("logstuff");
 
         let logstuff = LogPriority::new(factor, interval);
+        log("selv");
 
         Some(Self::new(name, logstuff, length))
     }
@@ -715,6 +870,10 @@ impl Task {
             None => self.created,
         };
         last
+    }
+
+    fn get_task(id: Uuid) -> Option<Self> {
+        load_tasks().into_iter().find(|task| task.id == id)
     }
 
     fn value_since(&self, dur: Duration) -> f32 {
@@ -750,6 +909,15 @@ pub fn log(message: impl std::fmt::Debug) {
 pub fn log_to_console(message: impl std::fmt::Debug) {
     let message = format!("{:?}", message);
     console::log_1(&JsValue::from_str(&message));
+}
+
+fn load_tasks_map() -> HashMap<Uuid, Task> {
+    let mut map = HashMap::default();
+    for task in load_tasks() {
+        let id = task.id;
+        map.insert(id, task);
+    }
+    map
 }
 
 fn load_tasks() -> Vec<Task> {
@@ -789,6 +957,16 @@ async fn fetch_tasks() -> Vec<Task> {
             vec![]
         }
     }
+}
+
+fn save_tasks_map(tasks: HashMap<Uuid, Task>) {
+    let mut the_tasks = vec![];
+
+    for (_, task) in tasks {
+        the_tasks.push(task);
+    }
+
+    save_tasks(the_tasks);
 }
 
 fn save_tasks(tasks: Vec<Task>) {
