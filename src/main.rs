@@ -24,12 +24,6 @@ extern "C" {
     fn loadLogsForTask(task_id: &JsValue) -> Promise;
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct TaskLog {
-    task_id: Uuid,
-    timestamp: UnixTime,
-}
-
 async fn load_logs_for_task(task_id: Uuid) -> JsFuture {
     let task_id_str = task_id.to_string();
     let task_id = JsValue::from_str(&task_id_str);
