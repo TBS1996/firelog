@@ -16,6 +16,47 @@ type UnixTime = Duration;
 
 const DEFAULT_SLOPE: f32 = std::f32::consts::E + 1.;
 
+#[derive(Clone, Default)]
+struct StateInner {
+    name: Signal<String>,
+    length: Signal<String>,
+    interval: Signal<String>,
+    factor: Signal<String>,
+    tasks: Signal<Vec<TaskProp>>,
+    value_stuff: Signal<f32>,
+}
+
+impl StateInner {
+    fn load() -> Self {
+        Self {
+            name: Signal::new(String::new()),
+            length: Signal::new(String::new()),
+            interval: Signal::new(String::new()),
+            factor: Signal::new(String::new()),
+            tasks: Signal::new(task_props()),
+            value_stuff: Signal::new(tot_value_since()),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct State {
+    inner: Arc<Mutex<StateInner>>,
+}
+
+use std::sync::{Arc, Mutex};
+
+impl State {
+    fn load() -> Self {
+        log("lets load");
+        let s = Self {
+            inner: Arc::new(Mutex::new(StateInner::load())),
+        };
+        log("ok loaded lol");
+        s
+    }
+}
+
 #[wasm_bindgen(module = "/assets/firestore.js")]
 extern "C" {
     fn upsertFirestoreTask(id: &JsValue, task: &JsValue) -> Promise;
@@ -208,6 +249,9 @@ fn send_task_to_firestore(task: &Task) -> JsFuture {
 enum Route {
     #[route("/")]
     Home {},
+    #[route("/new")]
+    New {},
+    #[route("/wtf")]
 }
 
 fn main() {
@@ -216,7 +260,7 @@ fn main() {
 }
 
 fn App() -> Element {
-    //sync_tasks();
+    use_context_provider(State::load);
     rsx! {
         Router::<Route> {}
     }
@@ -242,15 +286,69 @@ fn tot_value_since() -> f32 {
     value
 }
 
-fn form(
-    mut name: Signal<String>,
-    mut length: Signal<String>,
-    mut interval: Signal<String>,
-    mut factor: Signal<String>,
-    mut tasks: Signal<Vec<TaskProp>>,
-    mut value_stuff: Signal<f32>,
-) -> Element {
+
+#[component]
+fn Bar() -> Element {
+    //    let navigator = use_navigator();
     rsx! {
+        Link { to: Route::Foo {}, "Home" }
+    }
+}
+
+
+#[component]
+fn Foo() -> Element {
+    //    let navigator = use_navigator();
+    rsx! {
+        Link { to: Route::Bar {}, "Home" }
+    }
+}
+
+#[component]
+fn Wtf() -> Element {
+    //    let navigator = use_navigator();
+    rsx! {
+        Link { to: Route::Wtf {}, "Home" }
+    }
+}
+
+
+
+#[component]
+fn New() -> Element {
+    let state = use_context::<State>();
+
+
+    let mut name = state.inner.lock().unwrap().name.clone();
+    let mut length = state.inner.lock().unwrap().length.clone();
+    let mut interval = state.inner.lock().unwrap().interval.clone();
+    let mut factor = state.inner.lock().unwrap().factor.clone();
+
+
+
+    log("neww");
+
+
+    rsx! {
+
+        div {
+            display: "flex",
+            justify_content: "center",
+            align_items: "center",
+            height: "100vh",
+
+
+            div {
+                background_color: "lightblue",
+                padding: "20px",
+
+            Link { to: Route::Home {}, "back" }
+
+
+
+
+
+
         form {
             display: "flex",
             flex_direction: "row",
@@ -273,8 +371,6 @@ fn form(
                     let mut the_tasks = load_tasks();
                     the_tasks.push(task);
                     save_tasks(the_tasks);
-                    tasks.set(task_props());
-                    value_stuff.set(tot_value_since());
                 }
 
             },
@@ -282,6 +378,8 @@ fn form(
                 class: "input-group",
                 display: "flex",
                 flex_direction: "column",
+
+
 
                 div {
                     display: "flex",
@@ -296,6 +394,7 @@ fn form(
                         oninput: move |event| name.set(event.value()),
                     }
                 }
+
                 div {
                     flex_direction: "row",
                     display: "flex",
@@ -304,7 +403,6 @@ fn form(
                     input {
                         r#type: "number",
                         min: "1",
-                        required: true,
                         step: "any",
                         name: "length",
                         value: length(),
@@ -312,6 +410,7 @@ fn form(
                         oninput: move |event| length.set(event.value()),
                     }
                 }
+
                 div {
                     display: "flex",
                     flex_direction: "row",
@@ -320,7 +419,6 @@ fn form(
                     input {
                         r#type: "number",
                         min: "0.01",
-                        required: true,
                         step: "any",
                         name: "interval",
                         value: interval(),
@@ -328,6 +426,8 @@ fn form(
                         oninput: move |event| interval.set(event.value()),
                     }
                 }
+
+
                 div {
                     display: "flex",
                     flex_direction: "row",
@@ -335,31 +435,41 @@ fn form(
                     { "value" }
                     input {
                         r#type: "number",
-                        required: true,
                         name: "factor",
                         value: factor(),
                         autocomplete: "off",
                         oninput: move |event| factor.set(event.value()),
                     }
                 }
+
                 button {
                     r#type: "submit",
                     class: "confirm",
                     "Create task"
                 }
+           }
+        }
             }
         }
+
     }
 }
 
+
 #[component]
 fn Home() -> Element {
-    let name = use_signal(|| String::new());
-    let length = use_signal(|| String::new());
-    let interval = use_signal(|| String::new());
-    let factor = use_signal(|| String::new());
-    let mut tasks = use_signal(|| task_props());
-    let mut value_stuff = use_signal(|| tot_value_since());
+    let state = use_context::<State>();
+    log("111");
+//    let navigator = navigator();
+    log("211");
+
+    log("311");
+
+    let mut tasks = state.inner.lock().unwrap().tasks.clone();
+    let mut value_stuff = state.inner.lock().unwrap().value_stuff.clone();
+    log("411");
+    log("511");
+
 
     rsx! {
         div {
@@ -367,11 +477,16 @@ fn Home() -> Element {
             justify_content: "center",
             align_items: "center",
             height: "100vh",
+            flex_direction: "column",
+
+
+            Link { to: Route::New {}, "New task!" }
+
+
 
             div {
                 background_color: "lightblue",
                 padding: "20px",
-                { form(name, length, interval, factor, tasks, value_stuff) }
 
                 div {
                     display: "flex",
