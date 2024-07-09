@@ -1,5 +1,6 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js';
 import { getFirestore, collection, doc, setDoc, getDocs, serverTimestamp } from 'https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js';
+import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js';
 
 console.log("Initializing Firebase...");
 
@@ -16,24 +17,54 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const auth = getAuth(app);
+const provider = new GoogleAuthProvider();
+
 console.log("Firebase initialized:", db);
 
-window.firestoreInitialized = true;
+export async function signInWithGoogle() {
+    try {
+        const result = await signInWithPopup(auth, provider);
+        console.log('User signed in:', result.user);
+        return result.user;
+    } catch (error) {
+        console.error('Error signing in with Google:', error);
+        throw error;
+    }
+}
 
-export async function addFirestoreTaskLog(taskId, logId) {
-    const taskRef = doc(collection(db, 'task_logs'), taskId);
+export async function signOutUser() {
+    try {
+        await signOut(auth);
+        console.log('User signed out');
+    } catch (error) {
+        console.error('Error signing out:', error);
+        throw error;
+    }
+}
+
+export function xonAuthStateChanged(callback) {
+    onAuthStateChanged(auth, callback);
+}
+
+export function getCurrentUser() {
+    return auth.currentUser;
+}
+
+export async function addFirestoreTaskLog(userId, taskId, logId) {
+    const taskRef = doc(collection(db, 'users', userId, 'task_logs'), taskId);
     const logRef = doc(collection(taskRef, 'logs'), logId);
     await setDoc(logRef, {});
 }
 
-export async function loadAllLogs() {
-    const querySnapshot = await getDocs(collection(db, 'task_logs'));
+export async function loadAllLogs(userId) {
+    const querySnapshot = await getDocs(collection(db, 'users', userId, 'task_logs'));
     let logs = [];
     let promises = [];
 
     querySnapshot.forEach(doc => {
         let taskId = doc.id;
-        let subCollectionRef = collection(db, 'task_logs', taskId, 'logs');
+        let subCollectionRef = collection(db, 'users', userId, 'task_logs', taskId, 'logs');
         promises.push(getDocs(subCollectionRef).then(subQuerySnapshot => {
             subQuerySnapshot.forEach(subDoc => {
                 logs.push({
@@ -48,8 +79,8 @@ export async function loadAllLogs() {
     return logs;
 }
 
-export async function loadLogsForTask(taskId) {
-    const taskRef = doc(collection(db, 'task_logs'), taskId);
+export async function loadLogsForTask(userId, taskId) {
+    const taskRef = doc(collection(db, 'users', userId, 'task_logs'), taskId);
     const subCollectionRef = collection(taskRef, 'logs');
     const querySnapshot = await getDocs(subCollectionRef);
     let logs = [];
@@ -64,8 +95,7 @@ export async function loadLogsForTask(taskId) {
     return logs;
 }
 
-// Add or update a task in Firestore by ID
-export function upsertFirestoreTask(id, task) {
+export function upsertFirestoreTask(userId, id, task) {
   return new Promise((resolve, reject) => {
     if (typeof db === 'undefined') {
       console.error('Firestore has not been initialized');
@@ -73,9 +103,10 @@ export function upsertFirestoreTask(id, task) {
       return;
     }
     console.log(`Firestore is initialized. Adding/Updating task with ID ${id}:`, task);
-    const taskRef = doc(db, 'tasks', id);
+    const taskRef = doc(db, 'users', userId, 'tasks', id);
     setDoc(taskRef, {
       ...task,
+      userId: userId, // Associate task with user
       updated_at: serverTimestamp()
     }, { merge: true })
       .then(() => {
@@ -89,8 +120,7 @@ export function upsertFirestoreTask(id, task) {
   });
 }
 
-// Load all tasks from Firestore
-export function loadAllTasks() {
+export function loadAllTasks(userId) {
   return new Promise((resolve, reject) => {
     if (typeof db === 'undefined') {
       console.error('Firestore has not been initialized');
@@ -98,7 +128,7 @@ export function loadAllTasks() {
       return;
     }
     console.log('Firestore is initialized. Loading all tasks...');
-    getDocs(collection(db, 'tasks'))
+    getDocs(collection(db, 'users', userId, 'tasks'))
       .then((querySnapshot) => {
         const tasks = [];
         querySnapshot.forEach((doc) => {
@@ -113,14 +143,4 @@ export function loadAllTasks() {
       });
   });
 }
-
-window.upsertFirestoreTask = upsertFirestoreTask;
-window.loadAllTasks = loadAllTasks;
-
-export function isFirestoreInitialized() {
-  return typeof db !== 'undefined';
-}
-
-window.addEventListener('load', (event) => {
-});
 
