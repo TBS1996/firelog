@@ -16,8 +16,33 @@ type UnixTime = Duration;
 
 const DEFAULT_SLOPE: f32 = std::f32::consts::E + 1.;
 
+#[derive(Default, Clone)]
+struct AuthUser {
+    email: String,
+    uid: String,
+    token: String,
+}
+
+#[derive(Default, Clone)]
+enum AuthStatus {
+    Auth(AuthUser),
+    #[default]
+    Nope,
+}
+
+impl AuthStatus {
+    fn user(&self) -> Option<AuthUser> {
+        if let Self::Auth(user) = &self {
+            Some(user.clone())
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 struct StateInner {
+    auth_status: Signal<AuthStatus>,
     name: Signal<String>,
     length: Signal<String>,
     interval: Signal<String>,
@@ -29,6 +54,7 @@ struct StateInner {
 impl StateInner {
     fn load() -> Self {
         Self {
+            auth_status: Signal::new(AuthStatus::Nope),
             name: Signal::new(String::new()),
             length: Signal::new(String::new()),
             interval: Signal::new(String::new()),
@@ -55,34 +81,68 @@ impl State {
         log("ok loaded lol");
         s
     }
+
+    fn auth_user(&self) -> Option<AuthUser> {
+        let state = use_context::<State>();
+        let x = (*state.inner.lock().unwrap().auth_status.read()).clone();
+        x.user()
+    }
 }
 
 #[wasm_bindgen(module = "/assets/firestore.js")]
 extern "C" {
-    fn upsertFirestoreTask(id: &JsValue, task: &JsValue) -> Promise;
-    fn loadAllTasks() -> Promise;
-    fn addFirestoreTaskLog(task_id: &JsValue, log_id: &JsValue) -> Promise;
-    fn loadLogsForTask(task_id: &JsValue) -> Promise;
+    fn upsertFirestoreTask(user_id: &JsValue, id: &JsValue, task: &JsValue) -> Promise;
+    fn loadAllTasks(user_id: &JsValue) -> Promise;
+    fn addFirestoreTaskLog(user_id: &JsValue, task_id: &JsValue, log_id: &JsValue) -> Promise;
+    fn loadLogsForTask(user_id: &JsValue, task_id: &JsValue) -> Promise;
+    fn signInWithGoogle() -> Promise;
+    fn signOutUser() -> Promise;
+    fn xonAuthStateChanged(callback: &JsValue);
+    fn getCurrentUser() -> JsValue;
 }
 
-async fn load_logs_for_task(task_id: Uuid) -> JsFuture {
+async fn load_logs_for_task(user_id: String, task_id: Uuid) -> JsFuture {
     let task_id_str = task_id.to_string();
+    let user_id = JsValue::from_str(&user_id);
     let task_id = JsValue::from_str(&task_id_str);
 
-    let promise = loadLogsForTask(&task_id);
+    let promise = loadLogsForTask(&user_id, &task_id);
     wasm_bindgen_futures::JsFuture::from(promise)
 }
 
-fn add_task_log_to_firestore(task_id: Uuid, timestamp: UnixTime) -> JsFuture {
+fn add_task_log_to_firestore(user_id: String, task_id: Uuid, timestamp: UnixTime) -> JsFuture {
     let task_id_str = task_id.to_string();
     let log_id_str = timestamp.as_secs().to_string();
 
+    let user_id = JsValue::from_str(&user_id);
     let task_id = JsValue::from_str(&task_id_str);
     let log_id = JsValue::from_str(&log_id_str);
 
-    let promise = addFirestoreTaskLog(&task_id, &log_id);
+    let promise = addFirestoreTaskLog(&user_id, &task_id, &log_id);
 
     wasm_bindgen_futures::JsFuture::from(promise)
+}
+
+fn send_task_to_firestore(user_id: String, task: &Task) -> JsFuture {
+    let (task, id) = FireTask::new(task);
+    let taskstr = serde_json::to_string(&task).unwrap();
+
+    let task = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &task,
+        &JsValue::from_str("task"),
+        &JsValue::from_str(&taskstr),
+    )
+    .unwrap();
+
+    let idstr = serde_json::to_string(&id).unwrap();
+
+    let user_id = JsValue::from_str(&user_id);
+    let id = JsValue::from_str(&idstr);
+
+    let promise = upsertFirestoreTask(&user_id, &id, &task);
+    let future = wasm_bindgen_futures::JsFuture::from(promise);
+    future
 }
 
 #[derive(Default, Debug)]
@@ -113,7 +173,7 @@ impl Syncer {
         selv
     }
 
-    fn sync(self) -> (Tasks, Vec<JsFuture>, Vec<FireTask>) {
+    fn sync(self, user: AuthUser) -> (Tasks, Vec<JsFuture>, Vec<FireTask>) {
         log("lets sync");
         log(&self);
         let mut offline_tasks = Tasks::default();
@@ -123,7 +183,7 @@ impl Syncer {
         for (off, on) in self.pairs {
             log("hey");
             if off.updated > on.updated {
-                let future = send_task_to_firestore(&off);
+                let future = send_task_to_firestore(user.uid.clone(), &off);
                 futures.push(future);
             } else if off.updated < on.updated {
                 new_tasks.push(on);
@@ -139,7 +199,7 @@ impl Syncer {
 
         log("new offline");
         for task in self.new_offline {
-            let future = send_task_to_firestore(&task);
+            let future = send_task_to_firestore(user.uid.clone(), &task);
             futures.push(future);
             offline_tasks.insert(task);
         }
@@ -150,12 +210,22 @@ impl Syncer {
 }
 
 fn sync_tasks() {
-    let task_future = wasm_bindgen_futures::JsFuture::from(loadAllTasks());
-    let offline_tasks = Tasks::load_offline();
-
     let state = use_context::<State>();
+
+    let x = (*state.inner.lock().unwrap().auth_status.read()).clone();
+
     let mut tasks = state.inner.lock().unwrap().tasks.clone();
     let mut value_stuff = state.inner.lock().unwrap().value_stuff.clone();
+
+    let Some(user) = x.user() else {
+        tasks.set(task_props());
+        value_stuff.set(tot_value_since());
+        return;
+    };
+
+    let task_future =
+        wasm_bindgen_futures::JsFuture::from(loadAllTasks(&JsValue::from_str(&user.uid)));
+    let offline_tasks = Tasks::load_offline();
 
     wasm_bindgen_futures::spawn_local(async move {
         let online_tasks = {
@@ -174,7 +244,8 @@ fn sync_tasks() {
             online_tasks
         };
 
-        let (mut offtask, futures, newtasks) = Syncer::new(online_tasks, offline_tasks).sync();
+        let (mut offtask, futures, newtasks) =
+            Syncer::new(online_tasks, offline_tasks).sync(user.clone());
 
         for future in futures {
             log("lets await");
@@ -183,7 +254,10 @@ fn sync_tasks() {
 
         log("cool");
         for task in newtasks {
-            let x = load_logs_for_task(task.id).await.await.unwrap();
+            let x = load_logs_for_task(user.uid.clone(), task.id)
+                .await
+                .await
+                .unwrap();
 
             let mut logs = vec![];
             let val: serde_json::Value = serde_wasm_bindgen::from_value(x.clone()).unwrap();
@@ -224,37 +298,15 @@ fn sync_tasks() {
 
         for (id, task) in &offtask.0 {
             for log in &task.log {
-                add_task_log_to_firestore(*id, *log).await.unwrap();
+                add_task_log_to_firestore(user.uid.clone(), *id, *log)
+                    .await
+                    .unwrap();
             }
         }
 
         tasks.set(task_props());
         value_stuff.set(tot_value_since());
     });
-}
-
-// Create a Rust function to send data to Firestore
-fn send_task_to_firestore(task: &Task) -> JsFuture {
-    let (task, id) = FireTask::new(task);
-    let taskstr = serde_json::to_string(&task).unwrap();
-
-    let task = js_sys::Object::new();
-    js_sys::Reflect::set(
-        &task,
-        &JsValue::from_str("task"),
-        &JsValue::from_str(&taskstr),
-    )
-    .unwrap();
-
-    let idstr = serde_json::to_string(&id).unwrap();
-
-    let id = JsValue::from_str(&idstr);
-
-    // Call the JavaScript function
-    // let promise = upsertFirestoreTask(&task, &id);
-    let promise = upsertFirestoreTask(&id, &task);
-    let future = wasm_bindgen_futures::JsFuture::from(promise);
-    future
 }
 
 #[derive(Clone, Routable, Debug, PartialEq)]
@@ -460,6 +512,7 @@ fn New() -> Element {
     let mut length = state.inner.lock().unwrap().length.clone();
     let mut interval = state.inner.lock().unwrap().interval.clone();
     let mut factor = state.inner.lock().unwrap().factor.clone();
+    let mut auth = (*state.inner.lock().unwrap().auth_status.clone().read()).clone();
 
     log("neww");
 
@@ -493,10 +546,12 @@ fn New() -> Element {
                 log_to_console(&task);
 
                 if let Some(task) = task {
-                    let future = send_task_to_firestore(&task);
-                    wasm_bindgen_futures::spawn_local(async {
-                        future.await.unwrap();
-                    });
+                    if let Some(user) = auth.user() {
+                        let future = send_task_to_firestore(user.uid.clone(),&task);
+                        wasm_bindgen_futures::spawn_local(async {
+                            future.await.unwrap();
+                        });
+                    }
 
                     let mut the_tasks = Tasks::load_offline();
                     the_tasks.insert(task);
@@ -588,16 +643,10 @@ fn New() -> Element {
 #[component]
 fn Home() -> Element {
     let state = use_context::<State>();
-    log("111");
-    //    let navigator = navigator();
-    log("211");
-
-    log("311");
 
     let mut tasks = state.inner.lock().unwrap().tasks.clone();
     let mut value_stuff = state.inner.lock().unwrap().value_stuff.clone();
-    log("411");
-    log("511");
+    let mut auth = state.inner.lock().unwrap().auth_status.clone();
 
     rsx! {
         div {
@@ -620,6 +669,39 @@ fn Home() -> Element {
                     display: "flex",
                     flex_direction: "row",
 
+                    button {
+                        onclick: move |_| {
+                            let promise = signInWithGoogle();
+                            log("1");
+                            let future = wasm_bindgen_futures::JsFuture::from(promise);
+                            log("2");
+                            wasm_bindgen_futures::spawn_local(async move{
+                                use gloo_utils::format::JsValueSerdeExt;
+
+
+                                let x = future.await.unwrap();
+                                let wtf: serde_json::Value = JsValueSerdeExt::into_serde(&x).unwrap();
+                                let obj = wtf.as_object().unwrap();
+                                log(&obj);
+
+                                let uid = obj.get("uid").unwrap().as_str().unwrap().to_owned();
+                                let token = obj.get("stsTokenManager").unwrap().as_object().unwrap().get("accessToken").unwrap().as_str().unwrap().to_owned();
+                                let email = obj.get("providerData").unwrap().as_array().unwrap()[0].as_object().unwrap().get("email").unwrap().as_str().unwrap().to_owned();
+
+                                log((&uid, &token, &email));
+
+                                let user = AuthUser {uid, token, email};
+                                *auth.write() = AuthStatus::Auth(user);
+                            });
+
+
+                        },
+
+                        match *auth.read() {
+                            AuthStatus::Auth {..} => "signed in!",
+                            AuthStatus::Nope  => "sign in!",
+                        }
+                    }
                     button {
                         onclick: move |_| {
                             sync_tasks();
@@ -883,13 +965,17 @@ impl Task {
         let current = current_time();
         self.log.push(current);
 
-        let future = add_task_log_to_firestore(self.id, current);
-        wasm_bindgen_futures::spawn_local(async {
-            match future.await {
-                Ok(_) => web_sys::console::log_1(&JsValue::from_str("Log added successfully")),
-                Err(e) => web_sys::console::log_1(&e),
-            }
-        });
+        let state = use_context::<State>();
+
+        if let Some(user) = state.auth_user() {
+            let future = add_task_log_to_firestore(user.uid, self.id, current);
+            wasm_bindgen_futures::spawn_local(async {
+                match future.await {
+                    Ok(_) => web_sys::console::log_1(&JsValue::from_str("Log added successfully")),
+                    Err(e) => web_sys::console::log_1(&e),
+                }
+            });
+        }
     }
 
     fn from_form(form: HashMap<String, FormValue>) -> Option<Self> {

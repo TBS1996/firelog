@@ -683,6 +683,7 @@ dependencies = [
  "futures",
  "futures-util",
  "gloo 0.11.0",
+ "gloo-utils 0.2.0",
  "js-sys",
  "serde",
  "serde-wasm-bindgen 0.6.5",

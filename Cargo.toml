@@ -27,3 +27,4 @@ js-sys = "0.3.69"
 wasm-bindgen-futures = "0.4.42"
 gloo =  {version = "0.11.0", features = ["futures"]}
 serde-wasm-bindgen = "0.6.5"
+gloo-utils = {version = "0.2.0", features = ["serde"] }
