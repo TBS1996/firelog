@@ -11,8 +11,11 @@ use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::console;
+use web_sys::{window, Storage};
 
 type UnixTime = Duration;
+
+type TaskID = Uuid;
 
 const DEFAULT_SLOPE: f32 = std::f32::consts::E + 1.;
 
@@ -182,10 +185,10 @@ impl Syncer {
         log("lol");
         for (off, on) in self.pairs {
             log("hey");
-            if off.updated > on.updated {
+            if off.metadata.updated > on.updated {
                 let future = send_task_to_firestore(user.uid.clone(), &off);
                 futures.push(future);
-            } else if off.updated < on.updated {
+            } else if off.metadata.updated < on.updated {
                 new_tasks.push(on);
             }
             offline_tasks.insert(off);
@@ -279,14 +282,18 @@ fn sync_tasks() {
             }
 
             logs.sort();
+            let mut logs = TaskLog(logs);
+            logs.save_offline(task.id).await;
 
             let t = Task {
-                name: task.name,
-                value: task.value,
-                length: task.length,
-                created: task.created,
-                updated: task.updated,
-                deleted: task.deleted,
+                metadata: MetaData {
+                    name: task.name,
+                    value: task.value,
+                    length: task.length,
+                    created: task.created,
+                    updated: task.updated,
+                    deleted: task.deleted,
+                },
                 id: task.id,
                 log: logs,
             };
@@ -297,7 +304,7 @@ fn sync_tasks() {
         offtask.save_offline();
 
         for (id, task) in &offtask.0 {
-            for log in &task.log {
+            for log in &task.log.0 {
                 add_task_log_to_firestore(user.uid.clone(), *id, *log)
                     .await
                     .unwrap();
@@ -360,7 +367,7 @@ fn Edit(id: Uuid) -> Element {
     let mut interval = Signal::new(String::new());
     let mut factor = Signal::new(String::new());
 
-    let mut task = Tasks::load_offline().get_task(id).unwrap();
+    let task = Tasks::load_offline().get_task(id).unwrap();
     let xinterval = task.interval();
     let xfactor = task.factor();
 
@@ -398,9 +405,9 @@ fn Edit(id: Uuid) -> Element {
                 log("success!");
                     oldtask.set_factor(newtask.factor());
                     oldtask.set_interval(newtask.interval());
-                    oldtask.name = newtask.name;
-                    oldtask.length = newtask.length;
-                    oldtask.updated = current_time();
+                    oldtask.metadata.name = newtask.metadata.name;
+                    oldtask.metadata.length = newtask.metadata.length;
+                    oldtask.metadata.updated = current_time();
 
                     let mut all_tasks = Tasks::load_offline();
                     all_tasks.insert(oldtask.clone());
@@ -425,7 +432,7 @@ fn Edit(id: Uuid) -> Element {
                     { "name" }
                     input {
                         r#type: "text",
-                        value: task.name,
+                        value: task.metadata.name,
                         name: "name",
                         autocomplete: "off",
                         oninput: move |event| name.set(event.value()),
@@ -442,7 +449,7 @@ fn Edit(id: Uuid) -> Element {
                         min: "1",
                         step: "any",
                         name: "length",
-                        value: dur_to_mins(task.length),
+                        value: dur_to_mins(task.metadata.length),
                         autocomplete: "off",
                         oninput: move |event| length.set(event.value()),
                     }
@@ -512,7 +519,7 @@ fn New() -> Element {
     let mut length = state.inner.lock().unwrap().length.clone();
     let mut interval = state.inner.lock().unwrap().interval.clone();
     let mut factor = state.inner.lock().unwrap().factor.clone();
-    let mut auth = (*state.inner.lock().unwrap().auth_status.clone().read()).clone();
+    let auth = (*state.inner.lock().unwrap().auth_status.clone().read()).clone();
 
     log("neww");
 
@@ -824,12 +831,12 @@ struct FireTask {
 impl FireTask {
     fn new(task: &Task) -> (Self, Uuid) {
         let selv = Self {
-            name: task.name.clone(),
-            value: task.value.clone(),
-            length: task.length,
-            created: task.created,
-            updated: task.updated,
-            deleted: task.deleted,
+            name: task.metadata.name.clone(),
+            value: task.metadata.value.clone(),
+            length: task.metadata.length,
+            created: task.metadata.created,
+            updated: task.metadata.updated,
+            deleted: task.metadata.deleted,
             id: task.id,
         };
 
@@ -859,12 +866,20 @@ impl Tasks {
     }
 
     fn prune_deleted(&mut self) {
-        self.0.retain(|_, task| !task.deleted);
+        self.0.retain(|_, task| !task.metadata.deleted);
     }
 
     fn save_offline(&self) {
         log("starting save tasks");
-        let s = serde_json::to_string(&self.0).unwrap();
+
+        let mut metamap: HashMap<TaskID, MetaData> = HashMap::default();
+
+        for (key, task) in &self.0 {
+            metamap.insert(*key, task.metadata.clone());
+        }
+
+        let s = serde_json::to_string(&metamap).unwrap();
+
         let storage: Storage = window()
             .expect("no global `window` exists")
             .local_storage()
@@ -887,8 +902,8 @@ impl Tasks {
 
     fn delete_task(&mut self, id: Uuid) {
         let mut task = self.get_task(id).unwrap();
-        task.deleted = true;
-        task.updated = current_time();
+        task.metadata.deleted = true;
+        task.metadata.updated = current_time();
         self.insert(task);
         self.save_offline();
     }
@@ -896,39 +911,110 @@ impl Tasks {
     fn do_task(&mut self, id: Uuid) {
         let mut task = self.get_task(id).unwrap();
         task.do_task();
-        self.save_offline();
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Task {
+struct MetaData {
     name: String,
     value: ValueEq,
     length: Duration,
     created: UnixTime,
     updated: UnixTime,
-    log: Vec<UnixTime>,
     deleted: bool,
-    id: Uuid,
 }
 
-impl Task {
+impl MetaData {
     fn new(name: impl Into<String>, equation: LogPriority, length: Duration) -> Self {
         let time = current_time();
         Self {
             name: name.into(),
             created: time,
             updated: time,
-            log: vec![],
             value: ValueEq::Log(equation),
             deleted: false,
             length,
-            id: Uuid::new_v4(),
+        }
+    }
+}
+
+use std::collections::HashSet;
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct TaskLog(Vec<UnixTime>);
+
+impl TaskLog {
+    fn new(&mut self, time: UnixTime) {
+        if !self.0.contains(&time) {
+            self.0.push(time);
         }
     }
 
+    fn last_completed(&self) -> Option<UnixTime> {
+        self.0.last().copied()
+    }
+
+    fn merge(&mut self, other: Self) {
+        let mut set: HashSet<UnixTime> = HashSet::default();
+
+        for log in &self.0 {
+            set.insert(*log);
+        }
+
+        for log in other.0 {
+            set.insert(log);
+        }
+
+        let mut vec: Vec<UnixTime> = set.into_iter().collect();
+        vec.sort();
+
+        *self = Self(vec);
+    }
+
+    async fn save_offline(&mut self, id: TaskID) {
+        let mut all_logs = fetch_logs().await;
+        let mut current = all_logs.get(&id).cloned().unwrap_or_default();
+        current.merge(self.clone());
+        all_logs.insert(id, current);
+
+        log("starting save logs");
+        let s = serde_json::to_string(&all_logs).unwrap();
+
+        let storage: Storage = window()
+            .expect("no global `window` exists")
+            .local_storage()
+            .expect("no local storage")
+            .expect("local storage unavailable");
+
+        storage
+            .set_item("logs", &s)
+            .expect("Unable to set item in local storage");
+        log_to_console("Stored logs in local storage");
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Task {
+    id: Uuid,
+    log: TaskLog,
+    metadata: MetaData,
+}
+
+impl Task {
+    fn new(name: impl Into<String>, equation: LogPriority, length: Duration) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            metadata: MetaData::new(name, equation, length),
+            log: TaskLog::default(),
+        }
+    }
+
+    fn time_since_last_completion(&self) -> Duration {
+        let created = self.metadata.created;
+        current_time() - self.log.last_completed().unwrap_or(created)
+    }
+
     fn set_interval(&mut self, interval: Duration) {
-        if let ValueEq::Log(ref mut l) = &mut self.value {
+        if let ValueEq::Log(ref mut l) = &mut self.metadata.value {
             l.interval = interval;
             return;
         }
@@ -937,7 +1023,7 @@ impl Task {
     }
 
     fn set_factor(&mut self, factor: f32) {
-        if let ValueEq::Log(ref mut l) = &mut self.value {
+        if let ValueEq::Log(ref mut l) = &mut self.metadata.value {
             l.factor = factor;
             return;
         }
@@ -946,7 +1032,7 @@ impl Task {
     }
 
     fn factor(&self) -> f32 {
-        if let ValueEq::Log(l) = &self.value {
+        if let ValueEq::Log(l) = &self.metadata.value {
             return l.factor;
         }
 
@@ -954,7 +1040,7 @@ impl Task {
     }
 
     fn interval(&self) -> Duration {
-        if let ValueEq::Log(l) = &self.value {
+        if let ValueEq::Log(l) = &self.metadata.value {
             return l.interval;
         }
 
@@ -963,10 +1049,11 @@ impl Task {
 
     fn do_task(&mut self) {
         let current = current_time();
-        self.log.push(current);
+
+        self.log.new(current);
+        block_on(self.log.save_offline(self.id));
 
         let state = use_context::<State>();
-
         if let Some(user) = state.auth_user() {
             let future = add_task_log_to_firestore(user.uid, self.id, current);
             wasm_bindgen_futures::spawn_local(async {
@@ -1010,32 +1097,20 @@ impl Task {
     fn priority(&self) -> f32 {
         let t = self.time_since_last_completion();
 
-        let val = self.value.value(t);
-        let hour_length = self.length.as_secs_f32() / 3600.;
+        let val = self.metadata.value.value(t);
+        let hour_length = self.metadata.length.as_secs_f32() / 3600.;
         val / hour_length
-    }
-
-    fn time_since_last_completion(&self) -> Duration {
-        current_time() - self.last_completed()
-    }
-
-    fn last_completed(&self) -> UnixTime {
-        let last = match self.log.last() {
-            Some(time) => *time,
-            None => self.created,
-        };
-        last
     }
 
     fn value_since(&self, dur: Duration) -> f32 {
         let mut value_accrued = 0.;
-        let mut prev_done = self.created;
+        let mut prev_done = self.metadata.created;
         let current_time = current_time();
-        for completed_time in &self.log {
+        for completed_time in &self.log.0 {
             let time_elapsed = *completed_time - prev_done;
 
             if current_time - *completed_time < dur {
-                let value = self.value.value(time_elapsed);
+                let value = self.metadata.value.value(time_elapsed);
                 value_accrued += value;
             }
 
@@ -1062,9 +1137,63 @@ pub fn log_to_console(message: impl std::fmt::Debug) {
     console::log_1(&JsValue::from_str(&message));
 }
 
-use web_sys::{window, Storage};
+async fn fetch_logs() -> HashMap<Uuid, TaskLog> {
+    log_to_console("Starting fetch_logs");
+
+    let storage: Storage = window()
+        .expect("no global `window` exists")
+        .local_storage()
+        .expect("no local storage")
+        .expect("local storage unavailable");
+
+    let logs_str = storage.get_item("logs").unwrap_or_else(|_| {
+        log_to_console("Error retrieving item from local storage");
+        None
+    });
+
+    log(&logs_str);
+
+    log_to_console("Completed localStorage call");
+
+    match logs_str {
+        Some(str) => {
+            log_to_console(&format!("String from localStorage: {}", str));
+            serde_json::from_str(&str).unwrap_or_else(|e| {
+                log_to_console(&format!("Deserialization error: {:?}", e));
+                HashMap::default()
+            })
+        }
+        None => {
+            log_to_console("No logs found in localStorage");
+            HashMap::default()
+        }
+    }
+}
 
 async fn fetch_tasks() -> HashMap<Uuid, Task> {
+    log("fetching tasks");
+    let metadata = fetch_metadata().await;
+    let logs = fetch_logs().await;
+
+    log(("metadata: ", &metadata));
+    log(("logs: ", &logs));
+
+    let mut tasks = HashMap::default();
+
+    for (key, metadata) in metadata {
+        let log = logs.get(&key).cloned().unwrap_or_default();
+        let task = Task {
+            id: key,
+            log,
+            metadata,
+        };
+        tasks.insert(key, task);
+    }
+
+    tasks
+}
+
+async fn fetch_metadata() -> HashMap<Uuid, MetaData> {
     log_to_console("Starting fetch_tasks");
 
     let storage: Storage = window()
@@ -1107,7 +1236,7 @@ struct TaskProp {
 impl TaskProp {
     fn from_task(task: &Task) -> Self {
         Self {
-            name: task.name.clone(),
+            name: task.metadata.name.clone(),
             priority: format!("{:.2}", task.priority()),
             id: task.id,
         }
