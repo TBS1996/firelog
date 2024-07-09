@@ -93,9 +93,9 @@ struct Syncer {
 }
 
 impl Syncer {
-    fn new(mut online: Vec<FireTask>, offline: Vec<Task>) -> Self {
+    fn new(mut online: Vec<FireTask>, offline: Tasks) -> Self {
         let mut selv = Self::default();
-        for off_task in offline {
+        for (_, off_task) in offline.0 {
             let pos = online.iter().position(|ontask| ontask.id == off_task.id);
             match pos {
                 Some(pos) => {
@@ -113,10 +113,10 @@ impl Syncer {
         selv
     }
 
-    fn sync(self) -> (Vec<Task>, Vec<JsFuture>, Vec<FireTask>) {
+    fn sync(self) -> (Tasks, Vec<JsFuture>, Vec<FireTask>) {
         log("lets sync");
         log(&self);
-        let mut offline_tasks = vec![];
+        let mut offline_tasks = Tasks::default();
         let mut new_tasks = vec![];
         let mut futures = vec![];
         log("lol");
@@ -128,29 +128,36 @@ impl Syncer {
             } else if off.updated < on.updated {
                 new_tasks.push(on);
             }
-            offline_tasks.push(off);
+            offline_tasks.insert(off);
         }
 
         for task in self.new_from_server {
             log(("from server: ", &task));
             new_tasks.push(task);
+            log("XD");
         }
 
+        log("new offline");
         for task in self.new_offline {
             let future = send_task_to_firestore(&task);
             futures.push(future);
-            offline_tasks.push(task);
+            offline_tasks.insert(task);
         }
 
+        log("sync func done");
         (offline_tasks, futures, new_tasks)
     }
 }
 
 fn sync_tasks() {
     let task_future = wasm_bindgen_futures::JsFuture::from(loadAllTasks());
-    let offline_tasks = load_tasks();
+    let offline_tasks = Tasks::load_offline();
 
-    wasm_bindgen_futures::spawn_local(async {
+    let state = use_context::<State>();
+    let mut tasks = state.inner.lock().unwrap().tasks.clone();
+    let mut value_stuff = state.inner.lock().unwrap().value_stuff.clone();
+
+    wasm_bindgen_futures::spawn_local(async move {
         let online_tasks = {
             let x = task_future.await.unwrap();
             let x: serde_json::Value = serde_wasm_bindgen::from_value(x).unwrap();
@@ -167,13 +174,14 @@ fn sync_tasks() {
             online_tasks
         };
 
-        let (offtask, futures, newtasks) = Syncer::new(online_tasks, offline_tasks).sync();
-        let mut offtask = Task::vectomap(offtask);
+        let (mut offtask, futures, newtasks) = Syncer::new(online_tasks, offline_tasks).sync();
 
         for future in futures {
+            log("lets await");
             future.await.unwrap();
         }
 
+        log("cool");
         for task in newtasks {
             let x = load_logs_for_task(task.id).await.await.unwrap();
 
@@ -209,16 +217,19 @@ fn sync_tasks() {
                 log: logs,
             };
 
-            offtask.insert(t.id, t);
+            offtask.insert(t);
         }
 
-        for (id, task) in &offtask {
+        offtask.save_offline();
+
+        for (id, task) in &offtask.0 {
             for log in &task.log {
                 add_task_log_to_firestore(*id, *log).await.unwrap();
             }
         }
 
-        save_tasks_map(offtask);
+        tasks.set(task_props());
+        value_stuff.set(tot_value_since());
     });
 }
 
@@ -269,10 +280,11 @@ fn App() -> Element {
 }
 
 fn task_props() -> Vec<TaskProp> {
-    let mut tasks = load_tasks();
-    tasks.retain(|task| !task.deleted);
-    tasks.sort_by_key(|task| (task.priority() * 1000.) as u32);
-    tasks.reverse();
+    let mut tasks = Tasks::load_offline();
+    tasks.prune_deleted();
+
+    let tasks = tasks.to_vec_sorted();
+
     let tasks: Vec<TaskProp> = tasks.iter().map(|task| TaskProp::from_task(task)).collect();
     tasks
 }
@@ -280,7 +292,7 @@ fn task_props() -> Vec<TaskProp> {
 fn tot_value_since() -> f32 {
     let dur = Duration::from_secs(86400);
     let mut value = 0.;
-    let tasks = load_tasks();
+    let tasks = Tasks::load_offline().to_vec_sorted();
 
     for task in tasks {
         value += task.value_since(dur);
@@ -296,7 +308,7 @@ fn Edit(id: Uuid) -> Element {
     let mut interval = Signal::new(String::new());
     let mut factor = Signal::new(String::new());
 
-    let mut task = Task::get_task(id).unwrap();
+    let mut task = Tasks::load_offline().get_task(id).unwrap();
     let xinterval = task.interval();
     let xfactor = task.factor();
 
@@ -338,9 +350,9 @@ fn Edit(id: Uuid) -> Element {
                     oldtask.length = newtask.length;
                     oldtask.updated = current_time();
 
-                    let mut all_tasks = load_tasks_map();
-                    all_tasks.insert(id, oldtask.clone());
-                    save_tasks_map(all_tasks);
+                    let mut all_tasks = Tasks::load_offline();
+                    all_tasks.insert(oldtask.clone());
+                    all_tasks.save_offline();
                 } else {
 
                 log("fail!");
@@ -486,9 +498,9 @@ fn New() -> Element {
                         future.await.unwrap();
                     });
 
-                    let mut the_tasks = load_tasks();
-                    the_tasks.push(task);
-                    save_tasks(the_tasks);
+                    let mut the_tasks = Tasks::load_offline();
+                    the_tasks.insert(task);
+                    the_tasks.save_offline();
                 }
 
             },
@@ -610,9 +622,9 @@ fn Home() -> Element {
 
                     button {
                         onclick: move |_| {
+                            sync_tasks();
                             tasks.set(task_props());
                             value_stuff.set(tot_value_since());
-                            sync_tasks();
                         },
                         "🔄"
                     }
@@ -633,7 +645,7 @@ fn Home() -> Element {
 
                             button {
                                 onclick: move |_| {
-                                    Task::get_task(task.id).unwrap().delete();
+                                    Tasks::load_offline().delete_task(task.id);
                                     tasks.set(task_props());
                                     value_stuff.set(tot_value_since());
                                 },
@@ -642,7 +654,7 @@ fn Home() -> Element {
                             button {
                                 onclick: move |_| {
                                     log_to_console(&task.name);
-                                    Task::do_task(task.id);
+                                    Tasks::load_offline().do_task(task.id);
                                     tasks.set(task_props());
                                     value_stuff.set(tot_value_since());
                                 },
@@ -743,6 +755,69 @@ impl FireTask {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct Tasks(HashMap<Uuid, Task>);
+
+impl Tasks {
+    fn load_offline() -> Self {
+        Self(block_on(fetch_tasks()))
+    }
+
+    fn to_vec_sorted(self) -> Vec<Task> {
+        let mut vec = vec![];
+
+        for (_, task) in self.0.into_iter() {
+            vec.push(task);
+        }
+
+        vec.sort_by_key(|t| (t.priority() * 1000.) as u32);
+        vec.reverse();
+
+        vec
+    }
+
+    fn prune_deleted(&mut self) {
+        self.0.retain(|_, task| !task.deleted);
+    }
+
+    fn save_offline(&self) {
+        log("starting save tasks");
+        let s = serde_json::to_string(&self.0).unwrap();
+        let storage: Storage = window()
+            .expect("no global `window` exists")
+            .local_storage()
+            .expect("no local storage")
+            .expect("local storage unavailable");
+
+        storage
+            .set_item("tasks", &s)
+            .expect("Unable to set item in local storage");
+        log_to_console("Stored tasks in local storage");
+    }
+
+    fn get_task(&self, id: Uuid) -> Option<Task> {
+        self.0.get(&id).cloned()
+    }
+
+    fn insert(&mut self, task: Task) {
+        self.0.insert(task.id, task);
+    }
+
+    fn delete_task(&mut self, id: Uuid) {
+        let mut task = self.get_task(id).unwrap();
+        task.deleted = true;
+        task.updated = current_time();
+        self.insert(task);
+        self.save_offline();
+    }
+
+    fn do_task(&mut self, id: Uuid) {
+        let mut task = self.get_task(id).unwrap();
+        task.do_task();
+        self.save_offline();
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Task {
     name: String,
@@ -768,23 +843,6 @@ impl Task {
             length,
             id: Uuid::new_v4(),
         }
-    }
-
-    fn vectomap(vec: Vec<Self>) -> HashMap<Uuid, Self> {
-        let mut map = HashMap::default();
-        for task in vec {
-            let id = task.id;
-            map.insert(id, task);
-        }
-        map
-    }
-
-    fn delete(mut self) {
-        self.deleted = true;
-        self.updated = current_time();
-        let mut map = load_tasks_map();
-        map.insert(self.id, self);
-        save_tasks_map(map);
     }
 
     fn set_interval(&mut self, interval: Duration) {
@@ -821,30 +879,17 @@ impl Task {
         panic!();
     }
 
-    fn delete_task(id: Uuid) {
-        let mut tasks = load_tasks();
-        tasks.retain(|task| task.id != id);
-        save_tasks(tasks);
-    }
-
-    fn do_task(id: Uuid) {
+    fn do_task(&mut self) {
         let current = current_time();
-        let mut tasks = load_tasks();
-        for task in tasks.iter_mut() {
-            if task.id == id {
-                task.log.push(current);
-            }
-        }
+        self.log.push(current);
 
-        let future = add_task_log_to_firestore(id, current);
+        let future = add_task_log_to_firestore(self.id, current);
         wasm_bindgen_futures::spawn_local(async {
             match future.await {
                 Ok(_) => web_sys::console::log_1(&JsValue::from_str("Log added successfully")),
                 Err(e) => web_sys::console::log_1(&e),
             }
         });
-
-        save_tasks(tasks);
     }
 
     fn from_form(form: HashMap<String, FormValue>) -> Option<Self> {
@@ -896,10 +941,6 @@ impl Task {
         last
     }
 
-    fn get_task(id: Uuid) -> Option<Self> {
-        load_tasks().into_iter().find(|task| task.id == id)
-    }
-
     fn value_since(&self, dur: Duration) -> f32 {
         let mut value_accrued = 0.;
         let mut prev_done = self.created;
@@ -935,22 +976,9 @@ pub fn log_to_console(message: impl std::fmt::Debug) {
     console::log_1(&JsValue::from_str(&message));
 }
 
-fn load_tasks_map() -> HashMap<Uuid, Task> {
-    let mut map = HashMap::default();
-    for task in load_tasks() {
-        let id = task.id;
-        map.insert(id, task);
-    }
-    map
-}
-
-fn load_tasks() -> Vec<Task> {
-    block_on(fetch_tasks())
-}
-
 use web_sys::{window, Storage};
 
-async fn fetch_tasks() -> Vec<Task> {
+async fn fetch_tasks() -> HashMap<Uuid, Task> {
     log_to_console("Starting fetch_tasks");
 
     let storage: Storage = window()
@@ -973,39 +1001,14 @@ async fn fetch_tasks() -> Vec<Task> {
             log_to_console(&format!("String from localStorage: {}", str));
             serde_json::from_str(&str).unwrap_or_else(|e| {
                 log_to_console(&format!("Deserialization error: {:?}", e));
-                vec![]
+                HashMap::default()
             })
         }
         None => {
             log_to_console("No tasks found in localStorage");
-            vec![]
+            HashMap::default()
         }
     }
-}
-
-fn save_tasks_map(tasks: HashMap<Uuid, Task>) {
-    let mut the_tasks = vec![];
-
-    for (_, task) in tasks {
-        the_tasks.push(task);
-    }
-
-    save_tasks(the_tasks);
-}
-
-fn save_tasks(tasks: Vec<Task>) {
-    log("starting save tasks");
-    let s = serde_json::to_string(&tasks).unwrap();
-    let storage: Storage = window()
-        .expect("no global `window` exists")
-        .local_storage()
-        .expect("no local storage")
-        .expect("local storage unavailable");
-
-    storage
-        .set_item("tasks", &s)
-        .expect("Unable to set item in local storage");
-    log_to_console("Stored tasks in local storage");
 }
 
 #[derive(Props, PartialEq, Clone)]
