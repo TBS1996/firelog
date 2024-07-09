@@ -125,8 +125,8 @@ impl Syncer {
             if off.updated > on.updated {
                 let future = send_task_to_firestore(&off);
                 futures.push(future);
-            } else {
-                log("nope");
+            } else if off.updated < on.updated {
+                new_tasks.push(on);
             }
             offline_tasks.push(off);
         }
@@ -148,7 +148,6 @@ impl Syncer {
 
 fn sync_tasks() {
     let task_future = wasm_bindgen_futures::JsFuture::from(loadAllTasks());
-    //let online_tasks = load_online_tasks_blocking();
     let offline_tasks = load_tasks();
 
     wasm_bindgen_futures::spawn_local(async {
@@ -168,7 +167,8 @@ fn sync_tasks() {
             online_tasks
         };
 
-        let (mut offtask, futures, newtasks) = Syncer::new(online_tasks, offline_tasks).sync();
+        let (offtask, futures, newtasks) = Syncer::new(online_tasks, offline_tasks).sync();
+        let mut offtask = Task::vectomap(offtask);
 
         for future in futures {
             future.await.unwrap();
@@ -204,20 +204,21 @@ fn sync_tasks() {
                 length: task.length,
                 created: task.created,
                 updated: task.updated,
+                deleted: task.deleted,
                 id: task.id,
                 log: logs,
             };
 
-            offtask.push(t);
+            offtask.insert(t.id, t);
         }
 
-        for task in &offtask {
+        for (id, task) in &offtask {
             for log in &task.log {
-                add_task_log_to_firestore(task.id, *log).await.unwrap();
+                add_task_log_to_firestore(*id, *log).await.unwrap();
             }
         }
 
-        save_tasks(offtask);
+        save_tasks_map(offtask);
     });
 }
 
@@ -269,6 +270,7 @@ fn App() -> Element {
 
 fn task_props() -> Vec<TaskProp> {
     let mut tasks = load_tasks();
+    tasks.retain(|task| !task.deleted);
     tasks.sort_by_key(|task| (task.priority() * 1000.) as u32);
     tasks.reverse();
     let tasks: Vec<TaskProp> = tasks.iter().map(|task| TaskProp::from_task(task)).collect();
@@ -624,13 +626,14 @@ fn Home() -> Element {
                     padding: "5px",
 
                     for task in tasks() {
+
                         div {
                             display: "flex",
                             flex_direction: "row",
 
                             button {
                                 onclick: move |_| {
-                                    Task::delete_task(task.id);
+                                    Task::get_task(task.id).unwrap().delete();
                                     tasks.set(task_props());
                                     value_stuff.set(tot_value_since());
                                 },
@@ -720,6 +723,7 @@ struct FireTask {
     length: Duration,
     created: UnixTime,
     updated: UnixTime,
+    deleted: bool,
     id: Uuid,
 }
 
@@ -731,6 +735,7 @@ impl FireTask {
             length: task.length,
             created: task.created,
             updated: task.updated,
+            deleted: task.deleted,
             id: task.id,
         };
 
@@ -746,6 +751,7 @@ struct Task {
     created: UnixTime,
     updated: UnixTime,
     log: Vec<UnixTime>,
+    deleted: bool,
     id: Uuid,
 }
 
@@ -758,9 +764,27 @@ impl Task {
             updated: time,
             log: vec![],
             value: ValueEq::Log(equation),
+            deleted: false,
             length,
             id: Uuid::new_v4(),
         }
+    }
+
+    fn vectomap(vec: Vec<Self>) -> HashMap<Uuid, Self> {
+        let mut map = HashMap::default();
+        for task in vec {
+            let id = task.id;
+            map.insert(id, task);
+        }
+        map
+    }
+
+    fn delete(mut self) {
+        self.deleted = true;
+        self.updated = current_time();
+        let mut map = load_tasks_map();
+        map.insert(self.id, self);
+        save_tasks_map(map);
     }
 
     fn set_interval(&mut self, interval: Duration) {
