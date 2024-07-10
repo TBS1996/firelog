@@ -148,6 +148,12 @@ fn send_task_to_firestore(user_id: String, task: &Task) -> JsFuture {
     future
 }
 
+#[derive(Default)]
+struct SyncResult {
+    send_up: Vec<Task>,
+    download: Vec<FireTask>,
+}
+
 #[derive(Default, Debug)]
 struct Syncer {
     pairs: Vec<(Task, FireTask)>,
@@ -176,39 +182,25 @@ impl Syncer {
         selv
     }
 
-    fn sync(self, user: AuthUser) -> (Tasks, Vec<JsFuture>, Vec<FireTask>) {
-        log("lets sync");
-        log(&self);
-        let mut offline_tasks = Tasks::default();
-        let mut new_tasks = vec![];
-        let mut futures = vec![];
-        log("lol");
+    fn sync(self) -> SyncResult {
+        let mut res = SyncResult::default();
         for (off, on) in self.pairs {
-            log("hey");
             if off.metadata.updated > on.updated {
-                let future = send_task_to_firestore(user.uid.clone(), &off);
-                futures.push(future);
+                res.send_up.push(off);
             } else if off.metadata.updated < on.updated {
-                new_tasks.push(on);
+                res.download.push(on);
             }
-            offline_tasks.insert(off);
         }
 
         for task in self.new_from_server {
-            log(("from server: ", &task));
-            new_tasks.push(task);
-            log("XD");
+            res.download.push(task);
         }
 
-        log("new offline");
         for task in self.new_offline {
-            let future = send_task_to_firestore(user.uid.clone(), &task);
-            futures.push(future);
-            offline_tasks.insert(task);
+            res.send_up.push(task);
         }
 
-        log("sync func done");
-        (offline_tasks, futures, new_tasks)
+        res
     }
 }
 
@@ -247,17 +239,31 @@ fn sync_tasks() {
             online_tasks
         };
 
-        let (mut offtask, futures, newtasks) =
-            Syncer::new(online_tasks, offline_tasks).sync(user.clone());
+        let res = Syncer::new(online_tasks, offline_tasks).sync();
 
-        for future in futures {
-            log("lets await");
+        for task in res.send_up {
+            let future = send_task_to_firestore(user.uid.clone(), &task);
             future.await.unwrap();
         }
 
+        for task in res.download {
+            let metadata = MetaData {
+                name: task.name,
+                value: task.value,
+                length: task.length,
+                created: task.created,
+                updated: task.updated,
+                deleted: task.deleted,
+            };
+
+            metadata.save_offline(task.id).await;
+        }
+
         log("cool");
-        for task in newtasks {
-            let x = load_logs_for_task(user.uid.clone(), task.id)
+        let all_tasks = fetch_tasks().await;
+
+        for (id, task) in all_tasks {
+            let x = load_logs_for_task(user.uid.clone(), id)
                 .await
                 .await
                 .unwrap();
@@ -285,27 +291,8 @@ fn sync_tasks() {
             let mut logs = TaskLog(logs);
             logs.save_offline(task.id).await;
 
-            let t = Task {
-                metadata: MetaData {
-                    name: task.name,
-                    value: task.value,
-                    length: task.length,
-                    created: task.created,
-                    updated: task.updated,
-                    deleted: task.deleted,
-                },
-                id: task.id,
-                log: logs,
-            };
-
-            offtask.insert(t);
-        }
-
-        offtask.save_offline();
-
-        for (id, task) in &offtask.0 {
-            for log in &task.log.0 {
-                add_task_log_to_firestore(user.uid.clone(), *id, *log)
+            for log in logs.0 {
+                add_task_log_to_firestore(user.uid.clone(), id, log)
                     .await
                     .unwrap();
             }
@@ -878,6 +865,10 @@ impl Tasks {
             metamap.insert(*key, task.metadata.clone());
         }
 
+        Self::save_metadatas(metamap);
+    }
+
+    fn save_metadatas(metamap: HashMap<TaskID, MetaData>) {
         let s = serde_json::to_string(&metamap).unwrap();
 
         let storage: Storage = window()
@@ -935,6 +926,14 @@ impl MetaData {
             deleted: false,
             length,
         }
+    }
+
+    async fn save_offline(&self, id: TaskID) {
+        log("starting save tasks");
+
+        let mut metamap = fetch_metadata().await;
+        metamap.insert(id, self.clone());
+        Tasks::save_metadatas(metamap);
     }
 }
 
