@@ -26,6 +26,39 @@ struct AuthUser {
     token: String,
 }
 
+impl AuthUser {
+    fn from_jsvalue(val: wasm_bindgen::JsValue) -> Self {
+        use gloo_utils::format::JsValueSerdeExt;
+
+        let wtf: serde_json::Value = JsValueSerdeExt::into_serde(&val).unwrap();
+        let obj = wtf.as_object().unwrap();
+
+        let uid = obj.get("uid").unwrap().as_str().unwrap().to_owned();
+        let token = obj
+            .get("stsTokenManager")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .get("accessToken")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let email = obj.get("providerData").unwrap().as_array().unwrap()[0]
+            .as_object()
+            .unwrap()
+            .get("email")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_owned();
+
+        log((&uid, &token, &email));
+
+        Self { uid, token, email }
+    }
+}
+
 #[derive(Default, Clone)]
 enum AuthStatus {
     Auth(AuthUser),
@@ -643,21 +676,8 @@ fn Home() -> Element {
                             let future = wasm_bindgen_futures::JsFuture::from(promise);
                             log("2");
                             wasm_bindgen_futures::spawn_local(async move{
-                                use gloo_utils::format::JsValueSerdeExt;
-
-
-                                let x = future.await.unwrap();
-                                let wtf: serde_json::Value = JsValueSerdeExt::into_serde(&x).unwrap();
-                                let obj = wtf.as_object().unwrap();
-                                log(&obj);
-
-                                let uid = obj.get("uid").unwrap().as_str().unwrap().to_owned();
-                                let token = obj.get("stsTokenManager").unwrap().as_object().unwrap().get("accessToken").unwrap().as_str().unwrap().to_owned();
-                                let email = obj.get("providerData").unwrap().as_array().unwrap()[0].as_object().unwrap().get("email").unwrap().as_str().unwrap().to_owned();
-
-                                log((&uid, &token, &email));
-
-                                let user = AuthUser {uid, token, email};
+                                let val = future.await.unwrap();
+                                let user = AuthUser::from_jsvalue(val);
                                 *auth.write() = AuthStatus::Auth(user);
                             });
 
