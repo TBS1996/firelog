@@ -126,6 +126,14 @@ impl State {
         let x = (*state.inner.lock().unwrap().auth_status.read()).clone();
         x.user()
     }
+
+    fn refresh() {
+        let state = use_context::<State>();
+        let mut tasks = state.inner.lock().unwrap().tasks.clone();
+        let mut value_stuff = state.inner.lock().unwrap().value_stuff.clone();
+        tasks.set(task_props());
+        value_stuff.set(tot_value_since());
+    }
 }
 
 #[wasm_bindgen(module = "/assets/firestore.js")]
@@ -369,6 +377,7 @@ fn Edit(id: Uuid) -> Element {
 
     let mut oldtask = task.clone();
     log(&oldtask);
+    let navigator = use_navigator();
 
     rsx! {
 
@@ -384,7 +393,20 @@ fn Edit(id: Uuid) -> Element {
                 background_color: "lightblue",
                 padding: "20px",
 
-            Link { to: Route::Home {}, "back" }
+            button {
+                onclick: move |_| {
+                    navigator.replace(Route::Home{});
+                },
+                "go back"
+            }
+            button {
+                onclick: move |_| {
+                    Tasks::load_offline().delete_task(id);
+                    State::refresh();
+                    navigator.replace(Route::Home{});
+                },
+                "delete task"
+            }
 
 
 
@@ -412,6 +434,9 @@ fn Edit(id: Uuid) -> Element {
 
                 log("fail!");
                 };
+
+                navigator.replace(Route::Home{});
+                State::refresh();
 
             },
             div {
@@ -513,6 +538,8 @@ fn New() -> Element {
     let mut factor = state.inner.lock().unwrap().factor.clone();
     let auth = (*state.inner.lock().unwrap().auth_status.clone().read()).clone();
 
+    let navigator = navigator();
+
     log("neww");
 
     rsx! {
@@ -529,6 +556,7 @@ fn New() -> Element {
                 padding: "20px",
 
             Link { to: Route::Home {}, "back" }
+
 
 
         form {
@@ -556,6 +584,9 @@ fn New() -> Element {
                     the_tasks.insert(task);
                     the_tasks.save_offline();
                 }
+
+                navigator.replace(Route::Home{});
+                State::refresh();
 
             },
             div {
@@ -671,9 +702,7 @@ fn Home() -> Element {
                     button {
                         onclick: move |_| {
                             let promise = signInWithGoogle();
-                            log("1");
                             let future = wasm_bindgen_futures::JsFuture::from(promise);
-                            log("2");
                             wasm_bindgen_futures::spawn_local(async move{
                                 let val = future.await.unwrap();
                                 let user = AuthUser::from_jsvalue(val);
@@ -719,24 +748,21 @@ fn Home() -> Element {
                             flex_direction: "row",
 
                             button {
-                                onclick: move |_| {
-                                    Tasks::load_offline().delete_task(task.id);
-                                    tasks.set(task_props());
-                                    value_stuff.set(tot_value_since());
-                                },
-                                "❌"
-                            }
-                            button {
+                                margin_right: "5px",
                                 onclick: move |_| {
                                     log_to_console(&task.name);
                                     Tasks::load_offline().do_task(task.id);
-                                    tasks.set(task_props());
-                                    value_stuff.set(tot_value_since());
+                                    State::refresh();
                                 },
                                 "✅"
                             }
+                            span {
 
-                            Link { to: Route::Edit {id: task.id}, "{task.priority} {task.name}" }
+                                margin_right: "5px",
+                                "{task.priority}" }
+
+
+                            Link { to: Route::Edit {id: task.id}, "{task.name}" }
                         }
                     }
                 }
