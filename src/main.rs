@@ -60,8 +60,6 @@ impl AuthUser {
             .to_owned();
         */
 
-        log((&uid));
-
         Self { uid }
     }
 }
@@ -366,7 +364,9 @@ fn task_props() -> Vec<TaskProp> {
 fn tot_value_since() -> f32 {
     let dur = Duration::from_secs(86400);
     let mut value = 0.;
-    let tasks = Tasks::load_offline().to_vec_sorted();
+    let mut tasks = Tasks::load_offline();
+    tasks.prune_deleted();
+    let tasks = tasks.to_vec_sorted();
 
     for task in tasks {
         value += task.value_since(dur);
