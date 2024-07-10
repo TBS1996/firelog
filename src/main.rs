@@ -178,7 +178,9 @@ fn add_task_log_to_firestore(user_id: String, task_id: Uuid, timestamp: UnixTime
 }
 
 fn send_task_to_firestore(user_id: String, task: &Task) -> JsFuture {
-    let (task, id) = FireTask::new(task);
+    let id = task.id;
+    let task = task.metadata.clone();
+
     let taskstr = serde_json::to_string(&task).unwrap();
 
     let task = js_sys::Object::new();
@@ -202,18 +204,18 @@ fn send_task_to_firestore(user_id: String, task: &Task) -> JsFuture {
 #[derive(Default)]
 struct SyncResult {
     send_up: Vec<Task>,
-    download: HashMap<Uuid, FireTask>,
+    download: HashMap<Uuid, MetaData>,
 }
 
 #[derive(Default, Debug)]
 struct Syncer {
-    pairs: Vec<(Task, FireTask)>,
-    new_from_server: HashMap<Uuid, FireTask>,
+    pairs: Vec<(Task, MetaData)>,
+    new_from_server: HashMap<Uuid, MetaData>,
     new_offline: Vec<Task>,
 }
 
 impl Syncer {
-    fn new(mut online: HashMap<Uuid, FireTask>, offline: Tasks) -> Self {
+    fn new(mut online: HashMap<Uuid, MetaData>, offline: Tasks) -> Self {
         let mut selv = Self::default();
         for (_, off_task) in offline.0 {
             match online.remove(&off_task.id) {
@@ -272,7 +274,7 @@ fn sync_tasks() {
     let offline_tasks = Tasks::load_offline();
 
     wasm_bindgen_futures::spawn_local(async move {
-        let online_tasks = FireTask::from_jsvalue(task_future.await.unwrap());
+        let online_tasks = MetaData::from_jsvalue(task_future.await.unwrap());
 
         let res = Syncer::new(online_tasks, offline_tasks).sync();
 
@@ -863,54 +865,6 @@ impl ValueEq {
     }
 }
 
-/// The way the firetask thing is stored in firesore.
-/// so yeah, basically same but without the log and id. Cause log is stored separately
-/// and id is the key in the store so no need for that to be here lol.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct FireTask {
-    name: String,
-    value: ValueEq,
-    length: Duration,
-    created: UnixTime,
-    updated: UnixTime,
-    deleted: bool,
-    id: Uuid,
-}
-
-impl FireTask {
-    fn new(task: &Task) -> (Self, Uuid) {
-        let selv = Self {
-            name: task.metadata.name.clone(),
-            value: task.metadata.value.clone(),
-            length: task.metadata.length,
-            created: task.metadata.created,
-            updated: task.metadata.updated,
-            deleted: task.metadata.deleted,
-            id: task.id,
-        };
-
-        (selv, task.id)
-    }
-
-    fn from_jsvalue(val: wasm_bindgen::JsValue) -> HashMap<Uuid, Self> {
-        let x: serde_json::Value = serde_wasm_bindgen::from_value(val).unwrap();
-        log(("firetask: ", &x));
-        let x = x.as_array().unwrap();
-
-        let mut online_tasks = HashMap::default();
-
-        for y in x {
-            let task = y.get("task").unwrap().as_str().unwrap();
-            let id = y.get("id").unwrap().as_str().unwrap();
-            let task: FireTask = serde_json::from_str(&task).unwrap();
-            let id: Uuid = serde_json::from_str(&id).unwrap();
-            online_tasks.insert(id, task);
-        }
-
-        online_tasks
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct Tasks(HashMap<Uuid, Task>);
 
@@ -1016,16 +970,19 @@ impl MetaData {
         Tasks::save_metadatas(metamap);
     }
 
-    fn from_jsvalue(val: wasm_bindgen::JsValue) -> Vec<Self> {
+    fn from_jsvalue(val: wasm_bindgen::JsValue) -> HashMap<Uuid, Self> {
         let x: serde_json::Value = serde_wasm_bindgen::from_value(val).unwrap();
+        log(("firetask: ", &x));
         let x = x.as_array().unwrap();
 
-        let mut online_tasks = vec![];
+        let mut online_tasks = HashMap::default();
 
         for y in x {
             let task = y.get("task").unwrap().as_str().unwrap();
-            let task: Self = serde_json::from_str(&task).unwrap();
-            online_tasks.push(task);
+            let id = y.get("id").unwrap().as_str().unwrap();
+            let task: MetaData = serde_json::from_str(&task).unwrap();
+            let id: Uuid = serde_json::from_str(&id).unwrap();
+            online_tasks.insert(id, task);
         }
 
         online_tasks
