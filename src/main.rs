@@ -4,7 +4,10 @@ use dioxus::prelude::*;
 use futures::executor::block_on;
 use js_sys::Date;
 use js_sys::Promise;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::Level;
 use uuid::Uuid;
@@ -21,8 +24,10 @@ const DEFAULT_SLOPE: f32 = std::f32::consts::E + 1.;
 
 #[derive(Default, Clone)]
 struct AuthUser {
+    #[allow(dead_code)]
     email: String,
     uid: String,
+    #[allow(dead_code)]
     token: String,
 }
 
@@ -105,8 +110,6 @@ impl StateInner {
 struct State {
     inner: Arc<Mutex<StateInner>>,
 }
-
-use std::sync::{Arc, Mutex};
 
 impl State {
     fn load() -> Self {
@@ -485,11 +488,7 @@ fn Edit(id: Uuid) -> Element {
                     "Update task"
                 }
            }
-
-
-
-        }
-
+            }
             }
         }
 
@@ -695,6 +694,13 @@ fn Home() -> Element {
                             tasks.set(task_props());
                             value_stuff.set(tot_value_since());
                         },
+                        "sync"
+                    }
+                    button {
+                        onclick: move |_| {
+                            tasks.set(task_props());
+                            value_stuff.set(tot_value_since());
+                        },
                         "🔄"
                     }
                     div {"value last 24 hours: {value_stuff}"}
@@ -791,8 +797,6 @@ impl ValueEq {
         }
     }
 }
-
-use serde::{Deserialize, Serialize};
 
 /// The way the firetask thing is stored in firesore.
 /// so yeah, basically same but without the log and id. Cause log is stored separately
@@ -951,7 +955,6 @@ struct LogSyncRes {
     save: TaskLog,
 }
 
-use std::collections::HashSet;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct TaskLog(Vec<UnixTime>);
 
@@ -1034,7 +1037,7 @@ impl TaskLog {
     }
 
     async fn load_logs(task: TaskID) -> Self {
-        fetch_logs().await.get(&task).unwrap().clone()
+        fetch_logs().await.get(&task).cloned().unwrap_or_default()
     }
 
     async fn save_offline(&self, id: TaskID) {
