@@ -202,24 +202,22 @@ fn send_task_to_firestore(user_id: String, task: &Task) -> JsFuture {
 #[derive(Default)]
 struct SyncResult {
     send_up: Vec<Task>,
-    download: Vec<FireTask>,
+    download: HashMap<Uuid, FireTask>,
 }
 
 #[derive(Default, Debug)]
 struct Syncer {
     pairs: Vec<(Task, FireTask)>,
-    new_from_server: Vec<FireTask>,
+    new_from_server: HashMap<Uuid, FireTask>,
     new_offline: Vec<Task>,
 }
 
 impl Syncer {
-    fn new(mut online: Vec<FireTask>, offline: Tasks) -> Self {
+    fn new(mut online: HashMap<Uuid, FireTask>, offline: Tasks) -> Self {
         let mut selv = Self::default();
         for (_, off_task) in offline.0 {
-            let pos = online.iter().position(|ontask| ontask.id == off_task.id);
-            match pos {
-                Some(pos) => {
-                    let ontask = online.remove(pos);
+            match online.remove(&off_task.id) {
+                Some(ontask) => {
                     selv.pairs.push((off_task, ontask));
                 }
                 None => {
@@ -239,12 +237,12 @@ impl Syncer {
             if off.metadata.updated > on.updated {
                 res.send_up.push(off);
             } else if off.metadata.updated < on.updated {
-                res.download.push(on);
+                res.download.insert(off.id, on);
             }
         }
 
         for task in self.new_from_server {
-            res.download.push(task);
+            res.download.insert(task.0, task.1);
         }
 
         for task in self.new_offline {
@@ -283,7 +281,7 @@ fn sync_tasks() {
             future.await.unwrap();
         }
 
-        for task in res.download {
+        for (id, task) in res.download {
             let metadata = MetaData {
                 name: task.name,
                 value: task.value,
@@ -293,7 +291,7 @@ fn sync_tasks() {
                 deleted: task.deleted,
             };
 
-            metadata.save_offline(task.id).await;
+            metadata.save_offline(id).await;
         }
 
         log("syncing logs");
@@ -894,16 +892,19 @@ impl FireTask {
         (selv, task.id)
     }
 
-    fn from_jsvalue(val: wasm_bindgen::JsValue) -> Vec<Self> {
+    fn from_jsvalue(val: wasm_bindgen::JsValue) -> HashMap<Uuid, Self> {
         let x: serde_json::Value = serde_wasm_bindgen::from_value(val).unwrap();
+        log(("firetask: ", &x));
         let x = x.as_array().unwrap();
 
-        let mut online_tasks = vec![];
+        let mut online_tasks = HashMap::default();
 
         for y in x {
             let task = y.get("task").unwrap().as_str().unwrap();
+            let id = y.get("id").unwrap().as_str().unwrap();
             let task: FireTask = serde_json::from_str(&task).unwrap();
-            online_tasks.push(task);
+            let id: Uuid = serde_json::from_str(&id).unwrap();
+            online_tasks.insert(id, task);
         }
 
         online_tasks
@@ -1013,6 +1014,21 @@ impl MetaData {
         let mut metamap = fetch_metadata().await;
         metamap.insert(id, self.clone());
         Tasks::save_metadatas(metamap);
+    }
+
+    fn from_jsvalue(val: wasm_bindgen::JsValue) -> Vec<Self> {
+        let x: serde_json::Value = serde_wasm_bindgen::from_value(val).unwrap();
+        let x = x.as_array().unwrap();
+
+        let mut online_tasks = vec![];
+
+        for y in x {
+            let task = y.get("task").unwrap().as_str().unwrap();
+            let task: Self = serde_json::from_str(&task).unwrap();
+            online_tasks.push(task);
+        }
+
+        online_tasks
     }
 }
 
