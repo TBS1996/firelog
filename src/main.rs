@@ -223,21 +223,7 @@ fn sync_tasks() {
     let offline_tasks = Tasks::load_offline();
 
     wasm_bindgen_futures::spawn_local(async move {
-        let online_tasks = {
-            let x = task_future.await.unwrap();
-            let x: serde_json::Value = serde_wasm_bindgen::from_value(x).unwrap();
-            let x = x.as_array().unwrap();
-
-            let mut online_tasks = vec![];
-
-            for y in x {
-                let task = y.get("task").unwrap().as_str().unwrap();
-                let task: FireTask = serde_json::from_str(&task).unwrap();
-                online_tasks.push(task);
-            }
-
-            online_tasks
-        };
+        let online_tasks = FireTask::from_jsvalue(task_future.await.unwrap());
 
         let res = Syncer::new(online_tasks, offline_tasks).sync();
 
@@ -259,39 +245,26 @@ fn sync_tasks() {
             metadata.save_offline(task.id).await;
         }
 
-        log("cool");
+        log("syncing logs");
         let all_tasks = fetch_tasks().await;
 
-        for (id, task) in all_tasks {
-            let x = load_logs_for_task(user.uid.clone(), id)
-                .await
-                .await
-                .unwrap();
-
-            let mut logs = vec![];
-            let val: serde_json::Value = serde_wasm_bindgen::from_value(x.clone()).unwrap();
-            let mm = val.as_array().unwrap().clone();
-
-            for x in mm {
-                let ts: u64 = x
-                    .as_object()
-                    .unwrap()
-                    .get("timestamp")
-                    .unwrap()
-                    .as_str()
-                    .unwrap()
-                    .parse()
+        // load all firestore logs and merge with offline ones
+        for id in all_tasks.into_keys() {
+            let offline_logs = TaskLog::load_logs(id).await;
+            let online_logs = {
+                let val = load_logs_for_task(user.uid.clone(), id)
+                    .await
+                    .await
                     .unwrap();
 
-                let ts = UnixTime::from_secs(ts);
-                logs.push(ts);
-            }
+                TaskLog::from_jsvalue(val)
+            };
 
-            logs.sort();
-            let mut logs = TaskLog(logs);
-            logs.save_offline(task.id).await;
+            let res = TaskLog::sync(online_logs, offline_logs);
 
-            for log in logs.0 {
+            res.save.save_offline(id).await;
+
+            for log in res.send_up {
                 add_task_log_to_firestore(user.uid.clone(), id, log)
                     .await
                     .unwrap();
@@ -829,6 +802,21 @@ impl FireTask {
 
         (selv, task.id)
     }
+
+    fn from_jsvalue(val: wasm_bindgen::JsValue) -> Vec<Self> {
+        let x: serde_json::Value = serde_wasm_bindgen::from_value(val).unwrap();
+        let x = x.as_array().unwrap();
+
+        let mut online_tasks = vec![];
+
+        for y in x {
+            let task = y.get("task").unwrap().as_str().unwrap();
+            let task: FireTask = serde_json::from_str(&task).unwrap();
+            online_tasks.push(task);
+        }
+
+        online_tasks
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -937,6 +925,12 @@ impl MetaData {
     }
 }
 
+#[derive(Default)]
+struct LogSyncRes {
+    send_up: Vec<Duration>,
+    save: TaskLog,
+}
+
 use std::collections::HashSet;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct TaskLog(Vec<UnixTime>);
@@ -950,6 +944,56 @@ impl TaskLog {
 
     fn last_completed(&self) -> Option<UnixTime> {
         self.0.last().copied()
+    }
+
+    fn sync(from_online: Self, from_offline: Self) -> LogSyncRes {
+        let mut res = LogSyncRes::default();
+        let mut send_up = vec![];
+        let mut set: HashSet<UnixTime> = HashSet::default();
+
+        for unix in from_offline.0 {
+            if !from_online.0.contains(&unix) {
+                send_up.push(unix);
+            }
+
+            set.insert(unix);
+        }
+
+        for unix in from_online.0 {
+            set.insert(unix);
+        }
+
+        send_up.sort();
+        res.send_up = send_up;
+
+        let x: Vec<Duration> = set.into_iter().collect();
+        res.save = Self(x);
+
+        res
+    }
+
+    fn from_jsvalue(val: JsValue) -> Self {
+        let mut logs = vec![];
+        let val: serde_json::Value = serde_wasm_bindgen::from_value(val).unwrap();
+        let mm = val.as_array().unwrap().clone();
+
+        for x in mm {
+            let ts: u64 = x
+                .as_object()
+                .unwrap()
+                .get("timestamp")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .parse()
+                .unwrap();
+
+            let ts = UnixTime::from_secs(ts);
+            logs.push(ts);
+        }
+
+        logs.sort();
+        Self(logs)
     }
 
     fn merge(&mut self, other: Self) {
@@ -969,7 +1013,11 @@ impl TaskLog {
         *self = Self(vec);
     }
 
-    async fn save_offline(&mut self, id: TaskID) {
+    async fn load_logs(task: TaskID) -> Self {
+        fetch_logs().await.get(&task).unwrap().clone()
+    }
+
+    async fn save_offline(&self, id: TaskID) {
         let mut all_logs = fetch_logs().await;
         let mut current = all_logs.get(&id).cloned().unwrap_or_default();
         current.merge(self.clone());
@@ -993,7 +1041,7 @@ impl TaskLog {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Task {
-    id: Uuid,
+    id: TaskID,
     log: TaskLog,
     metadata: MetaData,
 }
