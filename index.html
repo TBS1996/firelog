@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <link rel="shortcut icon" href="icon-512x512.png" type="image/png">
-  <title>Task Manager</title>
+  <title></title>
 
   <script type="module" src="firestore.js"></script>
 </head>
@@ -17,6 +17,21 @@
         wasm.main();
       }
     });
+  </script>
+
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/assets/sw.js')
+          .then((registration) => {
+            console.log('Service Worker registered with scope:', registration.scope);
+          })
+          .catch((error) => {
+            console.error('Service Worker registration failed:', error);
+          });
+      });
+    }
   </script>
 </body>
 </html>

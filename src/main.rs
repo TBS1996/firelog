@@ -24,11 +24,11 @@ const DEFAULT_SLOPE: f32 = std::f32::consts::E + 1.;
 
 #[derive(Default, Clone)]
 struct AuthUser {
-    #[allow(dead_code)]
-    email: String,
+    // #[allow(dead_code)]
+    //  email: String,
     uid: String,
-    #[allow(dead_code)]
-    token: String,
+    //   #[allow(dead_code)]
+    //   token: String,
 }
 
 impl AuthUser {
@@ -39,6 +39,7 @@ impl AuthUser {
         let obj = wtf.as_object().unwrap();
 
         let uid = obj.get("uid").unwrap().as_str().unwrap().to_owned();
+        /*
         let token = obj
             .get("stsTokenManager")
             .unwrap()
@@ -57,10 +58,11 @@ impl AuthUser {
             .as_str()
             .unwrap()
             .to_owned();
+        */
 
-        log((&uid, &token, &email));
+        log((&uid));
 
-        Self { uid, token, email }
+        Self { uid }
     }
 }
 
@@ -77,6 +79,13 @@ impl AuthStatus {
             Some(user.clone())
         } else {
             None
+        }
+    }
+
+    fn is_authed(&self) -> bool {
+        match self {
+            Self::Nope => false,
+            Self::Auth(_) => true,
         }
     }
 }
@@ -326,6 +335,8 @@ enum Route {
     Home {},
     #[route("/new")]
     New {},
+    #[route("/about")]
+    About {},
     #[route("/edit/:id")]
     Edit { id: Uuid },
 }
@@ -362,6 +373,25 @@ fn tot_value_since() -> f32 {
     }
 
     value
+}
+
+#[component]
+fn About() -> Element {
+    rsx! {
+        Link {to: Route::Home{}, "back"}
+
+        p {
+            "firelog, it's yet another task manager! but with a twist"
+        }
+
+        p {"basically, each task/habit has a value, you should use your own currency"}
+        p {"recurring tasks get more important the longer since you did it (e.g. cleaning your room)"}
+        p {"the 'value' basically means, if you were unable to do this task at a given moment, how much money would you pay to have it done?"}
+        p {"since you also write in how long it takes to do the task, the value divided by the length (in hours) gives you the 'hourly wage' of each task"}
+        p {"this means it'll ideally tell you which task has the best ROI at any given moment"}
+
+
+    }
 }
 
 #[component]
@@ -444,8 +474,6 @@ fn Edit(id: Uuid) -> Element {
                 display: "flex",
                 flex_direction: "column",
 
-
-
                 div {
                     display: "flex",
                     flex_direction: "row",
@@ -459,7 +487,6 @@ fn Edit(id: Uuid) -> Element {
                         oninput: move |event| name.set(event.value()),
                     }
                 }
-
                 div {
                     flex_direction: "row",
                     display: "flex",
@@ -491,8 +518,6 @@ fn Edit(id: Uuid) -> Element {
                         oninput: move |event| interval.set(event.value()),
                     }
                 }
-
-
                 div {
                     display: "flex",
                     flex_direction: "row",
@@ -506,7 +531,6 @@ fn Edit(id: Uuid) -> Element {
                         oninput: move |event| factor.set(event.value()),
                     }
                 }
-
                 button {
                     r#type: "submit",
                     class: "confirm",
@@ -600,7 +624,7 @@ fn New() -> Element {
                     display: "flex",
                     flex_direction: "row",
                     justify_content: "space-between",
-                    { "name" }
+                    { tooltip("name", "name of task") }
                     input {
                         r#type: "text",
                         value: name(),
@@ -614,7 +638,7 @@ fn New() -> Element {
                     flex_direction: "row",
                     display: "flex",
                     justify_content: "space-between",
-                    { "length" }
+                    { tooltip("length", "how many minutes does it take to finish this task?") }
                     input {
                         r#type: "number",
                         min: "1",
@@ -630,7 +654,7 @@ fn New() -> Element {
                     display: "flex",
                     flex_direction: "row",
                     justify_content: "space-between",
-                    { "interval" }
+                    { tooltip("interval", "approximately how often do you want to do this task, in days?") }
                     input {
                         r#type: "number",
                         min: "0.01",
@@ -647,7 +671,7 @@ fn New() -> Element {
                     display: "flex",
                     flex_direction: "row",
                     justify_content: "space-between",
-                    { "value" }
+                    { tooltip("value", "after {interval} days have passed, how much would you pay to have this task done if you couldn't have it done yourself?") }
                     input {
                         r#type: "number",
                         name: "factor",
@@ -667,6 +691,19 @@ fn New() -> Element {
             }
         }
 
+    }
+}
+
+fn tooltip(main_text: &str, tooltip: &str) -> Element {
+    rsx! {
+        div {
+        class: "tooltip-container",
+        "{main_text}",
+            div {
+                class: "tooltip-text",
+                "{tooltip}"
+            }
+        }
     }
 }
 
@@ -690,7 +727,6 @@ fn Home() -> Element {
             Link { to: Route::New {}, "New task!" }
 
 
-
             div {
                 background_color: "lightblue",
                 padding: "20px",
@@ -699,32 +735,36 @@ fn Home() -> Element {
                     display: "flex",
                     flex_direction: "row",
 
-                    button {
-                        onclick: move |_| {
-                            let promise = signInWithGoogle();
-                            let future = wasm_bindgen_futures::JsFuture::from(promise);
-                            wasm_bindgen_futures::spawn_local(async move{
-                                let val = future.await.unwrap();
-                                let user = AuthUser::from_jsvalue(val);
-                                *auth.write() = AuthStatus::Auth(user);
-                            });
 
 
-                        },
 
-                        match *auth.read() {
-                            AuthStatus::Auth {..} => "signed in!",
-                            AuthStatus::Nope  => "sign in!",
+                    if (*auth.read()).is_authed(){
+                        button {
+                            onclick: move |_| {
+                                sync_tasks();
+                                tasks.set(task_props());
+                                value_stuff.set(tot_value_since());
+                            },
+                            "sync"
+                        }
+
+                    } else {
+                        button {
+                            onclick: move |_| {
+                                let promise = signInWithGoogle();
+                                let future = wasm_bindgen_futures::JsFuture::from(promise);
+                                wasm_bindgen_futures::spawn_local(async move{
+                                    let val = future.await.unwrap();
+                                    let user = AuthUser::from_jsvalue(val);
+                                    *auth.write() = AuthStatus::Auth(user);
+                                });
+
+
+                            },
+                            "sign in",
                         }
                     }
-                    button {
-                        onclick: move |_| {
-                            sync_tasks();
-                            tasks.set(task_props());
-                            value_stuff.set(tot_value_since());
-                        },
-                        "sync"
-                    }
+
                     button {
                         onclick: move |_| {
                             tasks.set(task_props());
@@ -767,6 +807,7 @@ fn Home() -> Element {
                     }
                 }
             }
+                Link { to: Route::About {}, "about" }
         }
     }
 }
