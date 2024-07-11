@@ -381,6 +381,8 @@ enum Route {
     Home {},
     #[route("/new")]
     New {},
+    #[route("/units/:id")]
+    Units { id: Uuid },
     #[route("/disc")]
     Disc {},
     #[route("/cont")]
@@ -391,6 +393,82 @@ enum Route {
     Edit { id: Uuid },
     #[route("/editcont/:id")]
     Editcont { id: Uuid },
+}
+
+#[component]
+fn Units(id: Uuid) -> Element {
+    let mut task = Tasks::load_offline().get_task(id).unwrap();
+
+    let mut input = Signal::new(String::new());
+
+    let navigator = navigator();
+
+    log("neww");
+
+    rsx! {
+
+        div {
+            display: "flex",
+            justify_content: "center",
+            align_items: "center",
+            height: "100vh",
+
+
+            div {
+                background_color: "lightblue",
+                padding: "20px",
+
+            Link { to: Route::Home {}, "back" }
+
+
+
+        form {
+            display: "flex",
+            flex_direction: "row",
+            onsubmit: move |event| {
+
+                let data = event.data().values();
+                let units: f32 = data.get("input").unwrap().as_value().to_string().parse().unwrap();
+                task.do_task(units);
+                navigator.replace(Route::Home {});
+                State::refresh();
+
+
+            },
+            div {
+                class: "input-group",
+                display: "flex",
+                flex_direction: "column",
+
+
+
+                div {
+                    display: "flex",
+                    flex_direction: "row",
+                    justify_content: "space-between",
+                    "units"
+                //    { tooltip("units", "name of task") }
+                    input {
+                        r#type: "text",
+                        value: input(),
+                        name: "input",
+                        autocomplete: "off",
+                        oninput: move |event| input.set(event.value()),
+                    }
+                }
+
+
+                button {
+                    r#type: "submit",
+                    class: "confirm",
+                    "submit"
+                }
+           }
+        }
+            }
+        }
+
+    }
 }
 
 fn main() {
@@ -1106,6 +1184,8 @@ fn Home() -> Element {
     let mut value_stuff = state.inner.lock().unwrap().value_stuff.clone();
     let mut auth = state.inner.lock().unwrap().auth_status.clone();
 
+    let mut navigator = use_navigator();
+
     rsx! {
         div {
             display: "flex",
@@ -1182,7 +1262,11 @@ fn Home() -> Element {
                                 margin_right: "5px",
                                 onclick: move |_| {
                                     log_to_console(&task.name);
-                                    Tasks::load_offline().do_task(task.id);
+                                    if task.disc {
+                                        Tasks::load_offline().do_task(task.id, 1.0);
+                                    } else {
+                                        navigator.replace(Route::Units{id: task.id});
+                                    };
                                     State::refresh();
                                 },
                                 "✅"
@@ -1334,9 +1418,9 @@ impl Tasks {
         self.save_offline();
     }
 
-    fn do_task(&mut self, id: Uuid) {
+    fn do_task(&mut self, id: Uuid, units: f32) {
         let mut task = self.get_task(id).unwrap();
-        task.do_task();
+        task.do_task(units);
     }
 }
 
@@ -1624,8 +1708,8 @@ impl Task {
         panic!();
     }
 
-    fn do_task(&mut self) {
-        let record = LogRecord::new_current(1.0);
+    fn do_task(&mut self, units: f32) {
+        let record = LogRecord::new_current(units);
         self.log.new(record);
         block_on(self.log.save_offline(self.id));
 
