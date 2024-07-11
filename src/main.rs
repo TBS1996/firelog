@@ -463,6 +463,17 @@ fn Editcont(id: Uuid) -> Element {
     log(&oldtask);
     let navigator = use_navigator();
 
+    let logstr: Vec<String> = task
+        .log
+        .time_since(current_time())
+        .into_iter()
+        .map(|dur| dur_format(dur))
+        .collect();
+    let logstr = format!("{:?}", logstr);
+    let mut logstr = logstr.replace("\"", "");
+    logstr.pop();
+    logstr.remove(0);
+
     rsx! {
 
 
@@ -591,9 +602,10 @@ fn Editcont(id: Uuid) -> Element {
                 }
            }
             }
+
+               h3 { "{logstr}" }
             }
         }
-
     }
 }
 
@@ -611,6 +623,17 @@ fn Edit(id: Uuid) -> Element {
     let mut oldtask = task.clone();
     log(&oldtask);
     let navigator = use_navigator();
+
+    let logstr: Vec<String> = task
+        .log
+        .time_since(current_time())
+        .into_iter()
+        .map(|dur| dur_format(dur))
+        .collect();
+    let logstr = format!("{:?}", logstr);
+    let mut logstr = logstr.replace("\"", "");
+    logstr.pop();
+    logstr.remove(0);
 
     rsx! {
 
@@ -740,8 +763,22 @@ fn Edit(id: Uuid) -> Element {
                 }
                    }
                 }
+       h3 { "{logstr}" }
             }
         }
+    }
+}
+
+fn dur_format(dur: Duration) -> String {
+    if dur > Duration::from_secs(86400) {
+        let days = dur.as_secs_f32() / 86400.;
+        format!("{:.1}d", days)
+    } else if dur > Duration::from_secs(3600) {
+        let hrs = dur.as_secs_f32() / 3600.;
+        format!("{:.1}h", hrs)
+    } else {
+        let mins = dur.as_secs_f32() / 60.;
+        format!("{:.1}m", mins)
     }
 }
 
@@ -1384,6 +1421,16 @@ impl TaskLog {
         if !self.0.contains(&record) {
             self.0.push(record);
         }
+    }
+
+    fn time_since(&self, time: UnixTime) -> Vec<Duration> {
+        let mut vec = vec![];
+
+        for log in &self.0 {
+            vec.push(time - log.time);
+        }
+
+        vec
     }
 
     fn last_completed(&self) -> Option<UnixTime> {
