@@ -29,16 +29,19 @@ pub struct Contask {
     factor: f32,
 
     created: UnixTime,
+
+    unit_name: Option<String>,
 }
 
 impl Contask {
-    fn new(daily_units: f32, factor: f32) -> Self {
+    fn new(daily_units: f32, factor: f32, unit_name: String) -> Self {
         let created = current_time();
 
         Self {
             daily_units,
             factor,
             created,
+            unit_name: Some(unit_name),
         }
     }
 
@@ -1006,6 +1009,7 @@ fn Disc() -> Element {
 
     }
 }
+
 #[component]
 fn Cont() -> Element {
     let state = use_context::<State>();
@@ -1110,7 +1114,7 @@ fn Cont() -> Element {
                     { tooltip("daily units", "approximately how often do you want to do this task, in days?") }
                     input {
                         r#type: "number",
-                        min: "0.01",
+                        min: "0.1",
                         step: "any",
                         name: "units",
                         value: units(),
@@ -1735,20 +1739,20 @@ impl Task {
     fn cont_from_form(form: HashMap<String, FormValue>) -> Option<Self> {
         log("name");
         let name = form.get("name")?.as_value();
-
-        let factor: f32 = form.get("factor")?.as_value().parse().ok()?;
         let units: f32 = form.get("units")?.as_value().parse().ok()?;
+        let value: f32 = form.get("factor")?.as_value().parse().ok()?;
+        // Value is calculated per unit. But it makes sense that the user inputs
+        // the value per the daily units.
+        let value = value / units;
+        let unit_name: String = form.get("unit_name")?.as_value().to_string();
 
         let length = {
             let length = form.get("length")?.as_value();
             let mins: f32 = length.parse().ok()?;
             Duration::from_secs_f32(mins * 60.)
         };
-        log("logstuff");
 
-        let logstuff = Contask::new(units, factor);
-        log("selv");
-
+        let logstuff = Contask::new(units, value, unit_name);
         Some(Self::new(name, ValueEq::Cont(logstuff), length))
     }
 
