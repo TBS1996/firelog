@@ -42,28 +42,23 @@ impl Contask {
         }
     }
 
-    fn value(&self, logs: TaskLog, current: UnixTime) -> f32 {
+    fn value(&self, logs: &TaskLog, current: UnixTime) -> f32 {
         self.factor * self.ratio(logs, current)
     }
 
-    fn ratio(&self, logs: TaskLog, current: UnixTime) -> f32 {
+    fn ratio(&self, logs: &TaskLog, current: UnixTime) -> f32 {
         let avg = self.daily_average(logs, current);
         log(("avg: ", avg));
         self.daily_units / avg
     }
 
-    fn daily_average(&self, logs: TaskLog, current: UnixTime) -> f32 {
-        let day = Duration::from_secs(86400);
-        let mut time_elapsed = current - self.created;
-        if time_elapsed < day {
-            time_elapsed = day;
-        }
-        let days_elapsed = time_elapsed.as_secs_f32() / 86400.;
+    fn daily_average(&self, logs: &TaskLog, current: UnixTime) -> f32 {
+        let days_elapsed = (current - self.created).as_secs_f32() / 86400.;
         let total_units: f32 = logs.0.iter().map(|log| log.units).sum();
 
         // We add the daily_units so that when you create the task for the first time the avg isnt
         // 0 and thus the value infinite.
-        (total_units + self.daily_units) / days_elapsed
+        (total_units + self.daily_units) / (days_elapsed + 1.0)
     }
 }
 
@@ -440,14 +435,11 @@ fn Units(id: Uuid) -> Element {
                 display: "flex",
                 flex_direction: "column",
 
-
-
                 div {
                     display: "flex",
                     flex_direction: "row",
                     justify_content: "space-between",
                     "units"
-                //    { tooltip("units", "name of task") }
                     input {
                         r#type: "text",
                         value: input(),
@@ -456,7 +448,6 @@ fn Units(id: Uuid) -> Element {
                         oninput: move |event| input.set(event.value()),
                     }
                 }
-
 
                 button {
                     r#type: "submit",
@@ -534,6 +525,12 @@ fn Editcont(id: Uuid) -> Element {
     let mut factor = Signal::new(String::new());
 
     let task = Tasks::load_offline().get_task(id).unwrap();
+    let ratio = task.ratio();
+    let value = task
+        .metadata
+        .value
+        .value(&task.log, task.metadata.created, current_time());
+
     let xunits = task.units();
     let xfactor = task.factor();
 
@@ -581,7 +578,7 @@ fn Editcont(id: Uuid) -> Element {
                 "delete task"
             }
 
-
+            h3 { "ratio: {ratio}, value: {value}" }
 
 
         form {
@@ -1155,7 +1152,12 @@ fn New() -> Element {
     rsx! {
         div {
             display: "flex",
+            justify_content: "center",
+            align_items: "center",
+            height: "100vh",
             flex_direction: "column",
+            background_color: "lightblue",
+            padding: "20px",
 
                 Link { to: Route::Disc {}, "new discrete task" }
                 Link { to: Route::Cont {}, "new continuous task" }
@@ -1184,7 +1186,7 @@ fn Home() -> Element {
     let mut value_stuff = state.inner.lock().unwrap().value_stuff.clone();
     let mut auth = state.inner.lock().unwrap().auth_status.clone();
 
-    let mut navigator = use_navigator();
+    let navigator = use_navigator();
 
     rsx! {
         div {
@@ -1193,6 +1195,7 @@ fn Home() -> Element {
             align_items: "center",
             height: "100vh",
             flex_direction: "column",
+         //   background_color: "#cecece",
 
 
             Link { to: Route::New {}, "New task!" }
@@ -1205,9 +1208,6 @@ fn Home() -> Element {
                 div {
                     display: "flex",
                     flex_direction: "row",
-
-
-
 
                     if (*auth.read()).is_authed(){
                         button {
@@ -1338,7 +1338,7 @@ pub enum ValueEq {
 }
 
 impl ValueEq {
-    fn value(&self, logs: TaskLog, created: UnixTime, current_time: UnixTime) -> f32 {
+    fn value(&self, logs: &TaskLog, created: UnixTime, current_time: UnixTime) -> f32 {
         let last_completed = logs.last_completed().unwrap_or(created);
         let time_since = current_time - last_completed;
 
@@ -1692,6 +1692,13 @@ impl Task {
         }
     }
 
+    fn ratio(&self) -> f32 {
+        if let ValueEq::Cont(l) = &self.metadata.value {
+            return l.ratio(&self.log, current_time());
+        }
+
+        panic!();
+    }
     fn units(&self) -> f32 {
         if let ValueEq::Cont(l) = &self.metadata.value {
             return l.daily_units;
@@ -1779,7 +1786,7 @@ impl Task {
         let val = self
             .metadata
             .value
-            .value(self.log.clone(), self.metadata.created, now);
+            .value(&self.log, self.metadata.created, now);
 
         let hour_length = self.metadata.length.as_secs_f32() / 3600.;
         val / hour_length
@@ -1795,7 +1802,7 @@ impl Task {
             let time = log.time;
             if time > cutoff {
                 let value = self.metadata.value.value(
-                    TaskLog::newlol(inner.clone()),
+                    &TaskLog::newlol(inner.clone()),
                     self.metadata.created,
                     time,
                 );
