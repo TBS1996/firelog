@@ -4,7 +4,6 @@ import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChang
 
 console.log("Initializing Firebase...");
 
-// Initialize Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyCq-vG1DGqXRauJMquYQPccfR3nMSeX8Gc",
   authDomain: "firelog-3aa10.firebaseapp.com",
@@ -51,10 +50,12 @@ export function getCurrentUser() {
     return auth.currentUser;
 }
 
-export async function addFirestoreTaskLog(userId, taskId, logId) {
+export async function addFirestoreTaskLog(userId, taskId, logId, units) {
     const taskRef = doc(collection(db, 'users', userId, 'task_logs'), taskId);
     const logRef = doc(collection(taskRef, 'logs'), logId);
-    await setDoc(logRef, {});
+    await setDoc(logRef, {
+        units: units
+    });
 }
 
 export async function loadAllLogs(userId) {
@@ -69,7 +70,8 @@ export async function loadAllLogs(userId) {
             subQuerySnapshot.forEach(subDoc => {
                 logs.push({
                     task_id: taskId,
-                    timestamp: subDoc.id
+                    timestamp: subDoc.id,
+                    units: subDoc.data().units 
                 });
             });
         }));
@@ -88,7 +90,8 @@ export async function loadLogsForTask(userId, taskId) {
     querySnapshot.forEach(subDoc => {
         logs.push({
             task_id: taskId,
-            timestamp: subDoc.id
+            timestamp: subDoc.id,
+            units: subDoc.data().units 
         });
     });
 
@@ -106,7 +109,7 @@ export function upsertFirestoreTask(userId, id, task) {
     const taskRef = doc(db, 'users', userId, 'tasks', id);
     setDoc(taskRef, {
       ...task,
-      userId: userId, // Associate task with user
+      userId: userId, 
       updated_at: serverTimestamp()
     }, { merge: true })
       .then(() => {

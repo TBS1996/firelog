@@ -6,7 +6,6 @@ use js_sys::Date;
 use js_sys::Promise;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::Level;
@@ -22,13 +21,55 @@ type TaskID = Uuid;
 
 const DEFAULT_SLOPE: f32 = std::f32::consts::E + 1.;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Contask {
+    // How many units you're expected to do per day on avg
+    daily_units: f32,
+    //  when you do one unit at the average rate, how much is the value?
+    factor: f32,
+
+    created: UnixTime,
+}
+
+impl Contask {
+    fn new(daily_units: f32, factor: f32) -> Self {
+        let created = current_time();
+
+        Self {
+            daily_units,
+            factor,
+            created,
+        }
+    }
+
+    fn value(&self, logs: TaskLog, current: UnixTime) -> f32 {
+        self.factor * self.ratio(logs, current)
+    }
+
+    fn ratio(&self, logs: TaskLog, current: UnixTime) -> f32 {
+        let avg = self.daily_average(logs, current);
+        log(("avg: ", avg));
+        self.daily_units / avg
+    }
+
+    fn daily_average(&self, logs: TaskLog, current: UnixTime) -> f32 {
+        let day = Duration::from_secs(86400);
+        let mut time_elapsed = current - self.created;
+        if time_elapsed < day {
+            time_elapsed = day;
+        }
+        let days_elapsed = time_elapsed.as_secs_f32() / 86400.;
+        let total_units: f32 = logs.0.iter().map(|log| log.units).sum();
+
+        // We add the daily_units so that when you create the task for the first time the avg isnt
+        // 0 and thus the value infinite.
+        (total_units + self.daily_units) / days_elapsed
+    }
+}
+
 #[derive(Default, Clone)]
 struct AuthUser {
-    // #[allow(dead_code)]
-    //  email: String,
     uid: String,
-    //   #[allow(dead_code)]
-    //   token: String,
 }
 
 impl AuthUser {
@@ -147,7 +188,12 @@ impl State {
 extern "C" {
     fn upsertFirestoreTask(user_id: &JsValue, id: &JsValue, task: &JsValue) -> Promise;
     fn loadAllTasks(user_id: &JsValue) -> Promise;
-    fn addFirestoreTaskLog(user_id: &JsValue, task_id: &JsValue, log_id: &JsValue) -> Promise;
+    fn addFirestoreTaskLog(
+        user_id: &JsValue,
+        task_id: &JsValue,
+        log_id: &JsValue,
+        log_factor: &JsValue,
+    ) -> Promise;
     fn loadLogsForTask(user_id: &JsValue, task_id: &JsValue) -> Promise;
     fn signInWithGoogle() -> Promise;
     fn signOutUser() -> Promise;
@@ -164,15 +210,17 @@ async fn load_logs_for_task(user_id: String, task_id: Uuid) -> JsFuture {
     wasm_bindgen_futures::JsFuture::from(promise)
 }
 
-fn add_task_log_to_firestore(user_id: String, task_id: Uuid, timestamp: UnixTime) -> JsFuture {
+fn add_task_log_to_firestore(user_id: String, task_id: Uuid, log: LogRecord) -> JsFuture {
     let task_id_str = task_id.to_string();
-    let log_id_str = timestamp.as_secs().to_string();
+    let log_id_str = log.time.as_secs().to_string();
+    let unit_str = log.units.to_string();
 
     let user_id = JsValue::from_str(&user_id);
     let task_id = JsValue::from_str(&task_id_str);
     let log_id = JsValue::from_str(&log_id_str);
+    let unit = JsValue::from_str(&unit_str);
 
-    let promise = addFirestoreTaskLog(&user_id, &task_id, &log_id);
+    let promise = addFirestoreTaskLog(&user_id, &task_id, &log_id, &unit);
 
     wasm_bindgen_futures::JsFuture::from(promise)
 }
@@ -333,10 +381,16 @@ enum Route {
     Home {},
     #[route("/new")]
     New {},
+    #[route("/disc")]
+    Disc {},
+    #[route("/cont")]
+    Cont {},
     #[route("/about")]
     About {},
     #[route("/edit/:id")]
     Edit { id: Uuid },
+    #[route("/editcont/:id")]
+    Editcont { id: Uuid },
 }
 
 fn main() {
@@ -362,14 +416,14 @@ fn task_props() -> Vec<TaskProp> {
 }
 
 fn tot_value_since() -> f32 {
-    let dur = Duration::from_secs(86400);
+    let time = current_time() - Duration::from_secs(86400);
     let mut value = 0.;
     let mut tasks = Tasks::load_offline();
     tasks.prune_deleted();
     let tasks = tasks.to_vec_sorted();
 
     for task in tasks {
-        value += task.value_since(dur);
+        value += task.value_since(time);
     }
 
     value
@@ -390,6 +444,155 @@ fn About() -> Element {
         p {"since you also write in how long it takes to do the task, the value divided by the length (in hours) gives you the 'hourly wage' of each task"}
         p {"this means it'll ideally tell you which task has the best ROI at any given moment"}
 
+
+    }
+}
+
+#[component]
+fn Editcont(id: Uuid) -> Element {
+    let mut name = Signal::new(String::new());
+    let mut length = Signal::new(String::new());
+    let mut units = Signal::new(String::new());
+    let mut factor = Signal::new(String::new());
+
+    let task = Tasks::load_offline().get_task(id).unwrap();
+    let xunits = task.units();
+    let xfactor = task.factor();
+
+    let mut oldtask = task.clone();
+    log(&oldtask);
+    let navigator = use_navigator();
+
+    rsx! {
+
+
+        div {
+            display: "flex",
+            justify_content: "center",
+            align_items: "center",
+            height: "100vh",
+
+
+            div {
+                background_color: "lightblue",
+                padding: "20px",
+
+            button {
+                onclick: move |_| {
+                    navigator.replace(Route::Home{});
+                },
+                "go back"
+            }
+            button {
+                onclick: move |_| {
+                    Tasks::load_offline().delete_task(id);
+                    State::refresh();
+                    navigator.replace(Route::Home{});
+                },
+                "delete task"
+            }
+
+
+
+
+        form {
+            display: "flex",
+            flex_direction: "row",
+            onsubmit: move |event| {
+                let data = event.data().values();
+                log("submitting!");
+                let newtask = Task::cont_from_form(data);
+
+                if let Some(newtask) = newtask {
+                log("success!");
+                    oldtask.set_factor(newtask.factor());
+                    oldtask.set_units(newtask.units());
+                    oldtask.metadata.name = newtask.metadata.name;
+                    oldtask.metadata.length = newtask.metadata.length;
+                    oldtask.metadata.updated = current_time();
+
+                    let mut all_tasks = Tasks::load_offline();
+                    all_tasks.insert(oldtask.clone());
+                    all_tasks.save_offline();
+                } else {
+                    log("fail!");
+                };
+
+                navigator.replace(Route::Home{});
+                State::refresh();
+
+            },
+            div {
+                class: "input-group",
+                display: "flex",
+                flex_direction: "column",
+
+                div {
+                    display: "flex",
+                    flex_direction: "row",
+                    justify_content: "space-between",
+                    { "name" }
+                    input {
+                        r#type: "text",
+                        value: task.metadata.name,
+                        name: "name",
+                        autocomplete: "off",
+                        oninput: move |event| name.set(event.value()),
+                    }
+                }
+                div {
+                    flex_direction: "row",
+                    display: "flex",
+                    justify_content: "space-between",
+                    { "length" }
+                    input {
+                        r#type: "number",
+                        min: "1",
+                        step: "any",
+                        name: "length",
+                        value: dur_to_mins(task.metadata.length),
+                        autocomplete: "off",
+                        oninput: move |event| length.set(event.value()),
+                    }
+                }
+
+                div {
+                    display: "flex",
+                    flex_direction: "row",
+                    justify_content: "space-between",
+                    { "units" }
+                    input {
+                        r#type: "number",
+                        min: "0.01",
+                        step: "any",
+                        name: "units",
+                        value: xunits.to_string(),
+                        autocomplete: "off",
+                        oninput: move |event| units.set(event.value()),
+                    }
+                }
+                div {
+                    display: "flex",
+                    flex_direction: "row",
+                    justify_content: "space-between",
+                    { "value" }
+                    input {
+                        r#type: "number",
+                        name: "factor",
+                        value: xfactor.to_string(),
+                        autocomplete: "off",
+                        oninput: move |event| factor.set(event.value()),
+                    }
+                }
+                button {
+                    r#type: "submit",
+                    class: "confirm",
+                    "Update task"
+                }
+           }
+            }
+            }
+        }
 
     }
 }
@@ -461,8 +664,7 @@ fn Edit(id: Uuid) -> Element {
                     all_tasks.insert(oldtask.clone());
                     all_tasks.save_offline();
                 } else {
-
-                log("fail!");
+                    log("fail!");
                 };
 
                 navigator.replace(Route::Home{});
@@ -536,11 +738,10 @@ fn Edit(id: Uuid) -> Element {
                     class: "confirm",
                     "Update task"
                 }
-           }
-            }
+                   }
+                }
             }
         }
-
     }
 }
 
@@ -553,7 +754,7 @@ fn dur_to_mins(dur: Duration) -> String {
 }
 
 #[component]
-fn New() -> Element {
+fn Disc() -> Element {
     let state = use_context::<State>();
 
     let mut name = state.inner.lock().unwrap().name.clone();
@@ -693,6 +894,159 @@ fn New() -> Element {
 
     }
 }
+#[component]
+fn Cont() -> Element {
+    let state = use_context::<State>();
+
+    let mut name = Signal::new(String::new());
+    let mut units = Signal::new(String::new());
+    let mut factor = Signal::new(String::new());
+    let mut length = Signal::new(String::new());
+
+    let auth = (*state.inner.lock().unwrap().auth_status.clone().read()).clone();
+
+    let navigator = navigator();
+
+    rsx! {
+
+        div {
+            display: "flex",
+            justify_content: "center",
+            align_items: "center",
+            height: "100vh",
+
+
+            div {
+                background_color: "lightblue",
+                padding: "20px",
+
+            Link { to: Route::Home {}, "back" }
+
+
+
+        form {
+            display: "flex",
+            flex_direction: "row",
+            onsubmit: move |event| {
+                name.set(String::new());
+                length.set(String::new());
+                units.set(String::new());
+                factor.set(String::new());
+
+                let data = event.data().values();
+                let task = Task::cont_from_form(data);
+                log_to_console(&task);
+
+                if let Some(task) = task {
+                    if let Some(user) = auth.user() {
+                        let future = send_task_to_firestore(user.uid.clone(),&task);
+                        wasm_bindgen_futures::spawn_local(async {
+                            future.await.unwrap();
+                        });
+                    }
+
+                    let mut the_tasks = Tasks::load_offline();
+                    the_tasks.insert(task);
+                    the_tasks.save_offline();
+                }
+
+                navigator.replace(Route::Home{});
+                State::refresh();
+
+            },
+            div {
+                class: "input-group",
+                display: "flex",
+                flex_direction: "column",
+
+
+
+                div {
+                    display: "flex",
+                    flex_direction: "row",
+                    justify_content: "space-between",
+                    { tooltip("name", "name of task") }
+                    input {
+                        r#type: "text",
+                        value: name(),
+                        name: "name",
+                        autocomplete: "off",
+                        oninput: move |event| name.set(event.value()),
+                    }
+                }
+
+                div {
+                    flex_direction: "row",
+                    display: "flex",
+                    justify_content: "space-between",
+                    { tooltip("length", "how many minutes does it take to finish this task?") }
+                    input {
+                        r#type: "number",
+                        min: "1",
+                        step: "any",
+                        name: "length",
+                        value: length(),
+                        autocomplete: "off",
+                        oninput: move |event| length.set(event.value()),
+                    }
+                }
+
+                div {
+                    display: "flex",
+                    flex_direction: "row",
+                    justify_content: "space-between",
+                    { tooltip("daily units", "approximately how often do you want to do this task, in days?") }
+                    input {
+                        r#type: "number",
+                        min: "0.01",
+                        step: "any",
+                        name: "units",
+                        value: units(),
+                        autocomplete: "off",
+                        oninput: move |event| units.set(event.value()),
+                    }
+                }
+
+
+                div {
+                    display: "flex",
+                    flex_direction: "row",
+                    justify_content: "space-between",
+                    { tooltip("value", "after {interval} days have passed, how much would you pay to have this task done if you couldn't have it done yourself?") }
+                    input {
+                        r#type: "number",
+                        name: "factor",
+                        value: factor(),
+                        autocomplete: "off",
+                        oninput: move |event| factor.set(event.value()),
+                    }
+                }
+
+                button {
+                    r#type: "submit",
+                    class: "confirm",
+                    "Create task"
+                }
+           }
+        }
+            }
+        }
+
+    }
+}
+
+#[component]
+fn New() -> Element {
+    rsx! {
+        div {
+            display: "flex",
+            flex_direction: "column",
+
+                Link { to: Route::Disc {}, "new discrete task" }
+                Link { to: Route::Cont {}, "new continuous task" }
+        }
+    }
+}
 
 fn tooltip(main_text: &str, tooltip: &str) -> Element {
     rsx! {
@@ -802,7 +1156,12 @@ fn Home() -> Element {
                                 "{task.priority}" }
 
 
-                            Link { to: Route::Edit {id: task.id}, "{task.name}" }
+                            if task.disc {
+                                Link { to: Route::Edit {id: task.id}, "{task.name}" }
+                            } else {
+                                Link { to: Route::Editcont {id: task.id}, "{task.name}" }
+
+                            }
                         }
                     }
                 }
@@ -854,13 +1213,18 @@ impl LogPriority {
 pub enum ValueEq {
     Log(LogPriority),
     Const(f32),
+    Cont(Contask),
 }
 
 impl ValueEq {
-    fn value(&self, t: Duration) -> f32 {
+    fn value(&self, logs: TaskLog, created: UnixTime, current_time: UnixTime) -> f32 {
+        let last_completed = logs.last_completed().unwrap_or(created);
+        let time_since = current_time - last_completed;
+
         match self {
-            Self::Log(log) => log.value(t),
             Self::Const(f) => *f,
+            Self::Cont(c) => c.value(logs, current_time),
+            Self::Log(log) => log.value(time_since),
         }
     }
 }
@@ -950,13 +1314,13 @@ struct MetaData {
 }
 
 impl MetaData {
-    fn new(name: impl Into<String>, equation: LogPriority, length: Duration) -> Self {
+    fn new(name: impl Into<String>, equation: ValueEq, length: Duration) -> Self {
         let time = current_time();
         Self {
             name: name.into(),
             created: time,
             updated: time,
-            value: ValueEq::Log(equation),
+            value: equation,
             deleted: false,
             length,
         }
@@ -991,46 +1355,71 @@ impl MetaData {
 
 #[derive(Default)]
 struct LogSyncRes {
-    send_up: Vec<Duration>,
+    send_up: Vec<LogRecord>,
     save: TaskLog,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
+struct LogRecord {
+    time: UnixTime,
+    units: f32,
+}
+
+impl LogRecord {
+    fn new(time: UnixTime, units: f32) -> Self {
+        Self { time, units }
+    }
+
+    fn new_current(units: f32) -> Self {
+        let time = current_time();
+        Self::new(time, units)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct TaskLog(Vec<UnixTime>);
+struct TaskLog(Vec<LogRecord>);
 
 impl TaskLog {
-    fn new(&mut self, time: UnixTime) {
-        if !self.0.contains(&time) {
-            self.0.push(time);
+    fn new(&mut self, record: LogRecord) {
+        if !self.0.contains(&record) {
+            self.0.push(record);
         }
     }
 
     fn last_completed(&self) -> Option<UnixTime> {
-        self.0.last().copied()
+        self.0.last().copied().map(|rec| rec.time)
+    }
+
+    fn newlol(mut logs: Vec<LogRecord>) -> Self {
+        logs.sort_by_key(|log| log.time);
+        Self(logs)
     }
 
     fn sync(from_online: Self, from_offline: Self) -> LogSyncRes {
         let mut res = LogSyncRes::default();
         let mut send_up = vec![];
-        let mut set: HashSet<UnixTime> = HashSet::default();
+        let mut save = vec![];
 
         for unix in from_offline.0 {
             if !from_online.0.contains(&unix) {
                 send_up.push(unix);
             }
 
-            set.insert(unix);
+            if !save.contains(&unix) {
+                save.push(unix);
+            }
         }
 
         for unix in from_online.0 {
-            set.insert(unix);
+            if !save.contains(&unix) {
+                save.push(unix);
+            }
         }
 
-        send_up.sort();
-        res.send_up = send_up;
+        send_up.sort_by_key(|rec| rec.time);
 
-        let x: Vec<Duration> = set.into_iter().collect();
-        res.save = Self(x);
+        res.send_up = send_up;
+        res.save = Self::newlol(save);
 
         res
     }
@@ -1052,28 +1441,41 @@ impl TaskLog {
                 .unwrap();
 
             let ts = UnixTime::from_secs(ts);
-            logs.push(ts);
+            log(("X@@@: ", &x));
+
+            let foo = x.as_object().unwrap().get("units").unwrap().as_str();
+
+            let units: f32 = match foo {
+                Some(s) => s.parse().unwrap(),
+                None => 1.,
+            };
+
+            let log = LogRecord::new(ts, units);
+            logs.push(log);
         }
 
-        logs.sort();
+        logs.sort_by_key(|log| log.time);
         Self(logs)
     }
 
     fn merge(&mut self, other: Self) {
-        let mut set: HashSet<UnixTime> = HashSet::default();
+        let mut merged = vec![];
 
         for log in &self.0 {
-            set.insert(*log);
+            if !merged.contains(log) {
+                merged.push(*log);
+            }
         }
 
-        for log in other.0 {
-            set.insert(log);
+        for log in &other.0 {
+            if !merged.contains(log) {
+                merged.push(*log);
+            }
         }
 
-        let mut vec: Vec<UnixTime> = set.into_iter().collect();
-        vec.sort();
+        merged.sort_by_key(|mrg| mrg.time);
 
-        *self = Self(vec);
+        *self = Self(merged);
     }
 
     async fn load_logs(task: TaskID) -> Self {
@@ -1110,7 +1512,7 @@ struct Task {
 }
 
 impl Task {
-    fn new(name: impl Into<String>, equation: LogPriority, length: Duration) -> Self {
+    fn new(name: impl Into<String>, equation: ValueEq, length: Duration) -> Self {
         Self {
             id: Uuid::new_v4(),
             metadata: MetaData::new(name, equation, length),
@@ -1118,11 +1520,22 @@ impl Task {
         }
     }
 
-    fn time_since_last_completion(&self) -> Duration {
-        let created = self.metadata.created;
-        current_time() - self.log.last_completed().unwrap_or(created)
+    fn is_disc(&self) -> bool {
+        match self.metadata.value {
+            ValueEq::Log(_) => true,
+            ValueEq::Cont(_) => false,
+            ValueEq::Const(_) => false,
+        }
     }
 
+    fn set_units(&mut self, units: f32) {
+        if let ValueEq::Cont(ref mut l) = &mut self.metadata.value {
+            l.daily_units = units;
+            return;
+        }
+
+        panic!();
+    }
     fn set_interval(&mut self, interval: Duration) {
         if let ValueEq::Log(ref mut l) = &mut self.metadata.value {
             l.interval = interval;
@@ -1133,17 +1546,24 @@ impl Task {
     }
 
     fn set_factor(&mut self, factor: f32) {
-        if let ValueEq::Log(ref mut l) = &mut self.metadata.value {
-            l.factor = factor;
-            return;
-        }
-
-        panic!();
+        match &mut self.metadata.value {
+            ValueEq::Log(x) => x.factor = factor,
+            ValueEq::Cont(x) => x.factor = factor,
+            ValueEq::Const(x) => *x = factor,
+        };
     }
 
     fn factor(&self) -> f32 {
-        if let ValueEq::Log(l) = &self.metadata.value {
-            return l.factor;
+        match &self.metadata.value {
+            ValueEq::Log(x) => x.factor,
+            ValueEq::Cont(x) => x.factor,
+            ValueEq::Const(x) => *x,
+        }
+    }
+
+    fn units(&self) -> f32 {
+        if let ValueEq::Cont(l) = &self.metadata.value {
+            return l.daily_units;
         }
 
         panic!();
@@ -1158,14 +1578,13 @@ impl Task {
     }
 
     fn do_task(&mut self) {
-        let current = current_time();
-
-        self.log.new(current);
+        let record = LogRecord::new_current(1.0);
+        self.log.new(record);
         block_on(self.log.save_offline(self.id));
 
         let state = use_context::<State>();
         if let Some(user) = state.auth_user() {
-            let future = add_task_log_to_firestore(user.uid, self.id, current);
+            let future = add_task_log_to_firestore(user.uid, self.id, record);
             wasm_bindgen_futures::spawn_local(async {
                 match future.await {
                     Ok(_) => web_sys::console::log_1(&JsValue::from_str("Log added successfully")),
@@ -1173,6 +1592,26 @@ impl Task {
                 }
             });
         }
+    }
+
+    fn cont_from_form(form: HashMap<String, FormValue>) -> Option<Self> {
+        log("name");
+        let name = form.get("name")?.as_value();
+
+        let factor: f32 = form.get("factor")?.as_value().parse().ok()?;
+        let units: f32 = form.get("units")?.as_value().parse().ok()?;
+
+        let length = {
+            let length = form.get("length")?.as_value();
+            let mins: f32 = length.parse().ok()?;
+            Duration::from_secs_f32(mins * 60.)
+        };
+        log("logstuff");
+
+        let logstuff = Contask::new(units, factor);
+        log("selv");
+
+        Some(Self::new(name, ValueEq::Cont(logstuff), length))
     }
 
     fn from_form(form: HashMap<String, FormValue>) -> Option<Self> {
@@ -1200,31 +1639,39 @@ impl Task {
         let logstuff = LogPriority::new(factor, interval);
         log("selv");
 
-        Some(Self::new(name, logstuff, length))
+        Some(Self::new(name, ValueEq::Log(logstuff), length))
     }
 
     /// Hourly wage
     fn priority(&self) -> f32 {
-        let t = self.time_since_last_completion();
+        let now = current_time();
+        let val = self
+            .metadata
+            .value
+            .value(self.log.clone(), self.metadata.created, now);
 
-        let val = self.metadata.value.value(t);
         let hour_length = self.metadata.length.as_secs_f32() / 3600.;
         val / hour_length
     }
 
-    fn value_since(&self, dur: Duration) -> f32 {
+    // Value accrued after 'dur'.
+    fn value_since(&self, cutoff: UnixTime) -> f32 {
         let mut value_accrued = 0.;
-        let mut prev_done = self.metadata.created;
-        let current_time = current_time();
-        for completed_time in &self.log.0 {
-            let time_elapsed = *completed_time - prev_done;
+        let tasklog = self.log.clone();
 
-            if current_time - *completed_time < dur {
-                let value = self.metadata.value.value(time_elapsed);
+        let mut inner = vec![];
+        for log in &tasklog.0 {
+            let time = log.time;
+            if time > cutoff {
+                let value = self.metadata.value.value(
+                    TaskLog::newlol(inner.clone()),
+                    self.metadata.created,
+                    time,
+                );
+
                 value_accrued += value;
             }
-
-            prev_done = *completed_time;
+            inner.push(log.clone());
         }
 
         value_accrued
@@ -1238,8 +1685,9 @@ pub fn current_time() -> UnixTime {
     UnixTime::from_secs(seconds_since_epoch)
 }
 
-pub fn log(message: impl std::fmt::Debug) {
-    log_to_console(message);
+pub fn log(message: impl std::fmt::Debug) -> impl std::fmt::Debug {
+    log_to_console(&message);
+    message
 }
 
 pub fn log_to_console(message: impl std::fmt::Debug) {
@@ -1341,6 +1789,7 @@ struct TaskProp {
     name: String,
     priority: String,
     id: Uuid,
+    disc: bool,
 }
 
 impl TaskProp {
@@ -1349,6 +1798,7 @@ impl TaskProp {
             name: task.metadata.name.clone(),
             priority: format!("{:.2}", task.priority()),
             id: task.id,
+            disc: task.is_disc(),
         }
     }
 }
