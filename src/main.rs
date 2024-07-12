@@ -376,12 +376,11 @@ enum Route {
 #[component]
 fn Units(id: Uuid) -> Element {
     let mut task = Tasks::load_offline().get_task(id).unwrap();
+    let unit_name = task.unit_name();
 
     let mut input = Signal::new(String::new());
 
     let navigator = navigator();
-
-    log("neww");
 
     rsx! {
 
@@ -421,7 +420,7 @@ fn Units(id: Uuid) -> Element {
                     display: "flex",
                     flex_direction: "row",
                     justify_content: "space-between",
-                    "units"
+                    "{unit_name}"
                     input {
                         r#type: "text",
                         value: input(),
@@ -505,6 +504,7 @@ fn Editcont(id: Uuid) -> Element {
     let mut length = Signal::new(String::new());
     let mut units = Signal::new(String::new());
     let mut factor = Signal::new(String::new());
+    let mut unit_name = Signal::new(String::new());
 
     let task = Tasks::load_offline().get_task(id).unwrap();
     let ratio = task.ratio();
@@ -514,7 +514,8 @@ fn Editcont(id: Uuid) -> Element {
         .value(&task.log, task.metadata.created, current_time());
 
     let xunits = task.units();
-    let xfactor = task.factor();
+    let xfactor = task.factor() * xunits;
+    let xunit_name = task.unit_name();
 
     let mut oldtask = task.clone();
     log(&oldtask);
@@ -571,7 +572,7 @@ fn Editcont(id: Uuid) -> Element {
                 let newtask = Task::cont_from_form(data);
 
                 if let Some(newtask) = newtask {
-                log("success!");
+                    log("success!");
                     oldtask.set_factor(newtask.factor());
                     oldtask.set_units(newtask.units());
                     oldtask.metadata.name = newtask.metadata.name;
@@ -605,6 +606,19 @@ fn Editcont(id: Uuid) -> Element {
                         name: "name",
                         autocomplete: "off",
                         oninput: move |event| name.set(event.value()),
+                    }
+                }
+                div {
+                    display: "flex",
+                    flex_direction: "row",
+                    justify_content: "space-between",
+                    { "unit name" }
+                    input {
+                        r#type: "text",
+                        value: xunit_name,
+                        name: "unit_name",
+                        autocomplete: "off",
+                        oninput: move |event| unit_name.set(event.value()),
                     }
                 }
                 div {
@@ -645,6 +659,8 @@ fn Editcont(id: Uuid) -> Element {
                     { "value" }
                     input {
                         r#type: "number",
+                        min: "0.001",
+                        step: "any",
                         name: "factor",
                         value: xfactor.to_string(),
                         autocomplete: "off",
@@ -1067,6 +1083,20 @@ fn Cont() -> Element {
                 }
 
                 div {
+                    display: "flex",
+                    flex_direction: "row",
+                    justify_content: "space-between",
+                    { tooltip("unit name (plural)", "e.g. pages, minutes, kilometers") }
+                    input {
+                        r#type: "text",
+                        value: name(),
+                        name: "unit_name",
+                        autocomplete: "off",
+                        oninput: move |event| name.set(event.value()),
+                    }
+                }
+
+                div {
                     flex_direction: "row",
                     display: "flex",
                     justify_content: "space-between",
@@ -1136,7 +1166,7 @@ fn New() -> Element {
             height: "100vh",
             flex_direction: "row",
 
-                Link {margin_right: "50px", to: Route::Disc {}, "new discrete task" }
+                Link { margin_right: "50px", to: Route::Disc {}, "new discrete task" }
                 Link { to: Route::Cont {}, "new continuous task" }
         }
     }
@@ -1199,7 +1229,6 @@ fn Home() -> Element {
                             }
 
                         }
-
                     } else {
                         button {
                             class: "emoji-button",
@@ -1710,6 +1739,13 @@ impl Task {
 
         panic!();
     }
+    fn unit_name(&self) -> String {
+        if let ValueEq::Cont(l) = &self.metadata.value {
+            return l.unit_name.clone().unwrap_or("units".to_string());
+        }
+
+        panic!();
+    }
     fn units(&self) -> f32 {
         if let ValueEq::Cont(l) = &self.metadata.value {
             return l.daily_units;
@@ -1858,13 +1894,13 @@ async fn fetch_logs() -> HashMap<Uuid, TaskLog> {
         None
     });
 
-    log(&logs_str);
+    //    log(&logs_str);
 
     log_to_console("Completed localStorage call");
 
     match logs_str {
         Some(str) => {
-            log_to_console(&format!("String from localStorage: {}", str));
+            // log_to_console(&format!("String from localStorage: {}", str));
             serde_json::from_str(&str).unwrap_or_else(|e| {
                 log_to_console(&format!("Deserialization error: {:?}", e));
                 HashMap::default()
@@ -1882,8 +1918,8 @@ async fn fetch_tasks() -> HashMap<Uuid, Task> {
     let metadata = fetch_metadata().await;
     let logs = fetch_logs().await;
 
-    log(("metadata: ", &metadata));
-    log(("logs: ", &logs));
+    //log(("metadata: ", &metadata));
+    //log(("logs: ", &logs));
 
     let mut tasks = HashMap::default();
 
@@ -1894,6 +1930,7 @@ async fn fetch_tasks() -> HashMap<Uuid, Task> {
             log,
             metadata,
         };
+        log_to_console(("fetching task: ", &task.metadata.name));
         tasks.insert(key, task);
     }
 
@@ -1914,13 +1951,11 @@ async fn fetch_metadata() -> HashMap<Uuid, MetaData> {
         None
     });
 
-    log(&tasks_str);
-
     log_to_console("Completed localStorage call");
 
     match tasks_str {
         Some(str) => {
-            log_to_console(&format!("String from localStorage: {}", str));
+            // log_to_console(&format!("String from localStorage: {}", str));
             serde_json::from_str(&str).unwrap_or_else(|e| {
                 log_to_console(&format!("Deserialization error: {:?}", e));
                 HashMap::default()
