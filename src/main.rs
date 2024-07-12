@@ -413,7 +413,6 @@ fn Units(id: Uuid) -> Element {
 
 
             div {
-                background_color: "lightblue",
                 padding: "20px",
 
             Link { to: Route::Home {}, "back" }
@@ -563,7 +562,6 @@ fn Editcont(id: Uuid) -> Element {
 
 
             div {
-                background_color: "lightblue",
                 padding: "20px",
 
             button {
@@ -724,7 +722,6 @@ fn Edit(id: Uuid) -> Element {
 
 
             div {
-                background_color: "lightblue",
                 padding: "20px",
 
             button {
@@ -892,7 +889,6 @@ fn Disc() -> Element {
 
 
             div {
-                background_color: "lightblue",
                 padding: "20px",
 
             Link { to: Route::Home {}, "back" }
@@ -1033,7 +1029,6 @@ fn Cont() -> Element {
 
 
             div {
-                background_color: "lightblue",
                 padding: "20px",
 
             Link { to: Route::Home {}, "back" }
@@ -1160,7 +1155,6 @@ fn New() -> Element {
             align_items: "center",
             height: "100vh",
             flex_direction: "column",
-            background_color: "lightblue",
             padding: "20px",
 
                 Link { to: Route::Disc {}, "new discrete task" }
@@ -1206,12 +1200,12 @@ fn Home() -> Element {
 
 
             div {
-                background_color: "lightblue",
                 padding: "20px",
 
                 div {
                     display: "flex",
                     flex_direction: "row",
+                    margin_bottom: "20px",
 
                     if (*auth.read()).is_authed(){
                         button {
@@ -1254,13 +1248,13 @@ fn Home() -> Element {
                 div {
                     display: "flex",
                     flex_direction: "column",
-                    padding: "5px",
 
                     for task in tasks() {
 
                         div {
                             display: "flex",
                             flex_direction: "row",
+                            margin_bottom: "10px",
 
                             button {
                                 margin_right: "5px",
