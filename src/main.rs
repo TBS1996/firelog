@@ -533,8 +533,6 @@ fn Editcont(id: Uuid) -> Element {
     logstr.remove(0);
 
     rsx! {
-
-
         div {
             display: "flex",
             justify_content: "center",
@@ -546,18 +544,29 @@ fn Editcont(id: Uuid) -> Element {
                 padding: "20px",
 
             button {
+                class: "emoji-button",
                 onclick: move |_| {
                     navigator.replace(Route::Home{});
                 },
-                "go back"
+                img {
+                    width: "34px",
+                    height: "34px",
+                    src: "{back_str()}",
+                }
             }
             button {
+                class: "emoji-button",
                 onclick: move |_| {
                     Tasks::load_offline().delete_task(id);
                     State::refresh();
                     navigator.replace(Route::Home{});
                 },
-                "delete task"
+                img {
+                    width: "34px",
+                    height: "34px",
+                    src: "{delete_str()}",
+                }
+
             }
 
             h3 { "ratio: {ratio}, value: {value}" }
@@ -721,19 +730,30 @@ fn Edit(id: Uuid) -> Element {
                 padding: "20px",
 
             button {
+                class: "emoji-button",
                 onclick: move |_| {
                     navigator.replace(Route::Home{});
                 },
-                "go back"
+                img {
+                    width: "34px",
+                    height: "34px",
+                    src: "{back_str()}",
+                }
             }
             button {
+                class: "emoji-button",
                 onclick: move |_| {
                     Tasks::load_offline().delete_task(id);
                     State::refresh();
                     navigator.replace(Route::Home{});
                 },
-                "delete task"
+                img {
+                    width: "34px",
+                    height: "34px",
+                    src: "{delete_str()}",
+                }
             }
+
 
 
 
@@ -884,10 +904,24 @@ fn Disc() -> Element {
             height: "100vh",
 
 
+
             div {
                 padding: "20px",
 
-            Link { to: Route::Home {}, "back" }
+
+                        button {
+                            class: "emoji-button",
+                            onclick: move |_| {
+                                navigator.replace(Route::Home{});
+                            },
+
+                            img {
+                                width: "34px",
+                                height: "34px",
+                                src: "back_str()",
+                            }
+                        }
+
 
 
 
@@ -1027,7 +1061,19 @@ fn Cont() -> Element {
             div {
                 padding: "20px",
 
-            Link { to: Route::Home {}, "back" }
+
+                        button {
+                            class: "emoji-button",
+                            onclick: move |_| {
+                                navigator.replace(Route::Home{});
+                            },
+
+                            img {
+                                width: "34px",
+                                height: "34px",
+                                src: "back_str()",
+                            }
+                        }
 
 
 
@@ -1165,6 +1211,20 @@ fn New() -> Element {
             align_items: "center",
             height: "100vh",
             flex_direction: "row",
+
+                        button {
+                            class: "emoji-button",
+                            onclick: move |_| {
+                            },
+
+                            img {
+                                width: "34px",
+                                height: "34px",
+                                src: "{back_str()}",
+                            }
+
+                        }
+
 
                 Link { margin_right: "50px", to: Route::Disc {}, "new discrete task" }
                 Link { to: Route::Cont {}, "new continuous task" }
@@ -1985,4 +2045,12 @@ impl TaskProp {
             disc: task.is_disc(),
         }
     }
+}
+
+fn back_str() -> &'static str {
+    include_str!("../assets/return.svg")
+}
+
+fn delete_str() -> &'static str {
+    include_str!("../assets/delete.svg")
 }
