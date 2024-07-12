@@ -64,10 +64,6 @@ form {
 
 
 
-
-
-
-
 .tooltip-container {
     position: relative;
     display: inline-block;
@@ -94,5 +90,17 @@ form {
 .tooltip-container:hover .tooltip-text {
     visibility: visible;
     opacity: 1;
+}
+
+.emoji-button {
+    background: none;
+    border: none;
+    font-size: 2em;
+    cursor: pointer;
+    transition: color 0.3s;
+}
+
+.emoji-button:hover {
+    filter: brightness(0.7);
 }
 

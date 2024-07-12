@@ -78,26 +78,6 @@ impl AuthUser {
         let obj = wtf.as_object().unwrap();
 
         let uid = obj.get("uid").unwrap().as_str().unwrap().to_owned();
-        /*
-        let token = obj
-            .get("stsTokenManager")
-            .unwrap()
-            .as_object()
-            .unwrap()
-            .get("accessToken")
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_owned();
-        let email = obj.get("providerData").unwrap().as_array().unwrap()[0]
-            .as_object()
-            .unwrap()
-            .get("email")
-            .unwrap()
-            .as_str()
-            .unwrap()
-            .to_owned();
-        */
 
         Self { uid }
     }
@@ -1154,10 +1134,9 @@ fn New() -> Element {
             justify_content: "center",
             align_items: "center",
             height: "100vh",
-            flex_direction: "column",
-            padding: "20px",
+            flex_direction: "row",
 
-                Link { to: Route::Disc {}, "new discrete task" }
+                Link {margin_right: "50px", to: Route::Disc {}, "new discrete task" }
                 Link { to: Route::Cont {}, "new continuous task" }
         }
     }
@@ -1182,6 +1161,7 @@ fn Home() -> Element {
 
     let mut tasks = state.inner.lock().unwrap().tasks.clone();
     let mut value_stuff = state.inner.lock().unwrap().value_stuff.clone();
+    let valueform = format!("{:.2}", value_stuff);
     let mut auth = state.inner.lock().unwrap().auth_status.clone();
 
     let navigator = use_navigator();
@@ -1193,10 +1173,6 @@ fn Home() -> Element {
             align_items: "center",
             height: "100vh",
             flex_direction: "column",
-         //   background_color: "#cecece",
-
-
-            Link { to: Route::New {}, "New task!" }
 
 
             div {
@@ -1209,16 +1185,24 @@ fn Home() -> Element {
 
                     if (*auth.read()).is_authed(){
                         button {
+                            class: "emoji-button",
                             onclick: move |_| {
                                 sync_tasks();
                                 tasks.set(task_props());
                                 value_stuff.set(tot_value_since());
                             },
-                            "sync"
+
+                            img {
+                                width: "34px",
+                                height: "34px",
+                                src: "sync.svg",
+                            }
+
                         }
 
                     } else {
                         button {
+                            class: "emoji-button",
                             onclick: move |_| {
                                 let promise = signInWithGoogle();
                                 let future = wasm_bindgen_futures::JsFuture::from(promise);
@@ -1230,19 +1214,43 @@ fn Home() -> Element {
 
 
                             },
-                            "sign in",
+
+                            img {
+                                width: "34px",
+                                height: "34px",
+                                src: "signin.svg",
+                            }
+                        }
+                    }
+
+
+                    button {
+                        class: "emoji-button",
+                        onclick: move |_| {
+                            navigator.replace(Route::New{});
+                        },
+
+                        img {
+                            width: "34px",
+                            height: "34px",
+                            src: "addnew.svg",
                         }
                     }
 
                     button {
+                        class: "emoji-button",
                         onclick: move |_| {
                             tasks.set(task_props());
                             value_stuff.set(tot_value_since());
                         },
                         "🔄"
                     }
-                    div {"value last 24 hours: {value_stuff}"}
 
+                }
+
+                div {
+                    margin_bottom: "50px",
+                    "Value 24h: {valueform}"
                 }
 
                 div {
@@ -1256,18 +1264,23 @@ fn Home() -> Element {
                             flex_direction: "row",
                             margin_bottom: "10px",
 
-                            button {
-                                margin_right: "5px",
-                                onclick: move |_| {
-                                    log_to_console(&task.name);
-                                    if task.disc {
-                                        Tasks::load_offline().do_task(task.id, 1.0);
-                                    } else {
-                                        navigator.replace(Route::Units{id: task.id});
-                                    };
-                                    State::refresh();
-                                },
-                                "✅"
+                            div {
+                                button {
+                                    class: "emoji-button",
+                                    font_size: "1.0em",
+
+                                    margin_right: "5px",
+                                    onclick: move |_| {
+                                        log_to_console(&task.name);
+                                        if task.disc {
+                                            Tasks::load_offline().do_task(task.id, 1.0);
+                                        } else {
+                                            navigator.replace(Route::Units{id: task.id});
+                                        };
+                                        State::refresh();
+                                    },
+                                    "✅"
+                                }
                             }
                             span {
 
