@@ -125,9 +125,11 @@ form {
     position: relative;
     margin-left: 5px;
     vertical-align: middle; 
+    z-index: 1000; 
 }
 
 .tooltip-text {
+    z-index: 1000; 
     visibility: hidden;
     width: 120px;
     background-color: black;

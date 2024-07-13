@@ -73,6 +73,7 @@ impl Tasks {
 
     pub fn save_metadatas(metamap: HashMap<TaskID, MetaData>) {
         let s = serde_json::to_string(&metamap).unwrap();
+        log(("save metadatas: ", &s));
 
         let storage: Storage = window()
             .expect("no global `window` exists")
@@ -174,6 +175,12 @@ impl Task {
         }
     }
 
+    pub fn value(&self) -> f32 {
+        self.metadata
+            .value
+            .value(&self.log, self.metadata.created, utils::current_time())
+    }
+
     pub fn is_disc(&self) -> bool {
         match self.metadata.value {
             ValueEq::Log(_) => true,
@@ -215,7 +222,7 @@ impl Task {
         }
     }
 
-    pub fn ratio(&self) -> f32 {
+    pub fn _ratio(&self) -> f32 {
         if let ValueEq::Cont(l) = &self.metadata.value {
             return l.ratio(&self.log, utils::current_time());
         }

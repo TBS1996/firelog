@@ -1,6 +1,5 @@
 use crate::cache;
 use crate::firebase;
-use crate::frontend::{task_props, tot_value_since};
 use crate::task::{LogRecord, MetaData, Task, TaskLog, Tasks};
 use crate::{log, State};
 use dioxus::prelude::*;
@@ -75,12 +74,8 @@ pub fn sync_tasks(mut is_syncing: Signal<bool>) {
 
     let x = (*state.inner.lock().unwrap().auth_status.read()).clone();
 
-    let mut tasks = state.inner.lock().unwrap().tasks.clone();
-    let mut value_stuff = state.inner.lock().unwrap().value_stuff.clone();
-
     let Some(user) = x.user() else {
-        tasks.set(task_props());
-        value_stuff.set(tot_value_since());
+        State::refresh();
         return;
     };
 
@@ -142,7 +137,6 @@ pub fn sync_tasks(mut is_syncing: Signal<bool>) {
         futures::future::join_all(outer_futs).await;
 
         is_syncing.set(false);
-        tasks.set(task_props());
-        value_stuff.set(tot_value_since());
+        State::refresh();
     });
 }

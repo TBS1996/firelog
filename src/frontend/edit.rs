@@ -11,24 +11,8 @@ use uuid::Uuid;
 pub fn Editcont(id: Uuid) -> Element {
     let task = Tasks::load_offline().get_task(id).unwrap();
     let thetask = Tasks::load_offline().get_task(id).unwrap();
-    let ratio = task.ratio();
-    let value = task
-        .metadata
-        .value
-        .value(&task.log, task.metadata.created, utils::current_time());
 
     let navigator = use_navigator();
-
-    let logstr: Vec<String> = task
-        .log
-        .time_since(utils::current_time())
-        .into_iter()
-        .map(|dur| utils::dur_format(dur))
-        .collect();
-    let logstr = format!("{:?}", logstr);
-    let mut logstr = logstr.replace("\"", "");
-    logstr.pop();
-    logstr.remove(0);
 
     let closure = move |newtask: Option<Task>| {
         let mut oldtask = task.clone();
@@ -68,6 +52,13 @@ pub fn Editcont(id: Uuid) -> Element {
             div {
                 padding: "20px",
 
+
+                div {
+                    display: "flex",
+                    flex_direction: "row",
+                    justify_content: "space-between",
+                    width: "200px",
+
             button {
                 class: "emoji-button",
                 onclick: move |_| {
@@ -93,13 +84,10 @@ pub fn Editcont(id: Uuid) -> Element {
                 }
 
             }
-
-            h3 { "ratio: {ratio}, value: {value}" }
+                }
 
             { form }
 
-
-               h3 { "{logstr}" }
             }
         }
     }
@@ -130,12 +118,13 @@ pub fn Edit(id: Uuid) -> Element {
             return;
         };
 
-        log("success!");
+        log(("success! new task: ", &newtask));
         oldtask.set_factor(newtask.factor());
         oldtask.set_interval(newtask.interval());
         oldtask.metadata.name = newtask.metadata.name;
         oldtask.metadata.length = newtask.metadata.length;
         oldtask.metadata.updated = utils::current_time();
+        log(("edited task: ", &oldtask));
 
         let mut all_tasks = Tasks::load_offline();
         all_tasks.insert(oldtask.clone());
@@ -161,35 +150,41 @@ pub fn Edit(id: Uuid) -> Element {
 
             div {
                 padding: "20px",
+                div {
+                    display: "flex",
+                    flex_direction: "row",
+                    justify_content: "space-between",
+                    width: "200px",
 
-            button {
-                class: "emoji-button",
-                onclick: move |_| {
-                    navigator.replace(Route::Home{});
-                },
-                img {
-                    width: "34px",
-                    height: "34px",
-                    src: "{back_str()}",
+                    button {
+                        class: "emoji-button",
+                        onclick: move |_| {
+                            navigator.replace(Route::Home{});
+                        },
+                        img {
+                            width: "34px",
+                            height: "34px",
+                            src: "{back_str()}",
+                        }
+                    }
+                    button {
+                        class: "emoji-button",
+                        margin_left: "20px",
+                        onclick: move |_| {
+                            Tasks::load_offline().delete_task(id);
+                            State::refresh();
+                            navigator.replace(Route::Home{});
+                        },
+                        img {
+                            width: "34px",
+                            height: "34px",
+                            src: "{delete_str()}",
+                        }
+                    }
                 }
-            }
-            button {
-                class: "emoji-button",
-                onclick: move |_| {
-                    Tasks::load_offline().delete_task(id);
-                    State::refresh();
-                    navigator.replace(Route::Home{});
-                },
-                img {
-                    width: "34px",
-                    height: "34px",
-                    src: "{delete_str()}",
-                }
-            }
 
             { form }
 
-       h3 { "{logstr}" }
             }
         }
     }

@@ -32,3 +32,13 @@ pub fn str_as_days(s: &str) -> Option<Duration> {
     let days: f32 = s.parse().ok()?;
     Some(Duration::from_secs_f32(days * 86400.))
 }
+
+pub fn value_since(s: &str) -> Duration {
+    match s {
+        "1" => Duration::from_secs(86400),
+        "2" => Duration::from_secs(86400 * 7),
+        "3" => Duration::from_secs(86400 * 30),
+        "4" => Duration::from_secs(1000000000),
+        _ => panic!(),
+    }
+}

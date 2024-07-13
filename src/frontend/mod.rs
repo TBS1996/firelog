@@ -175,22 +175,26 @@ fn wtf(
             button {
                 r#type: "submit",
                 class: "confirm",
-                margin_top: "10px",
+                margin_top: "30px",
                 width: "200px",
-                "Create task"
+                if task.is_some() {
+                    "Update task"
+                } else {
+                    "Create task"
+                }
             }
         }
     }
 }
 
-#[allow(dead_code)]
-fn tooltip(main_text: &str, tooltip: &str) -> Element {
+pub fn tooltip(main_text: &str, tooltip: &str) -> Element {
     rsx! {
         div {
-        class: "tooltip-container",
-        "{main_text}",
+            class: "tooltip-container",
+            "{main_text}",
             div {
                 class: "tooltip-text",
+                z_index: "5000",
                 "{tooltip}"
             }
         }
@@ -211,6 +215,7 @@ pub fn log_to_console(message: impl std::fmt::Debug) {
 pub struct TaskProp {
     name: String,
     priority: String,
+    value: String,
     id: Uuid,
     disc: bool,
 }
@@ -222,6 +227,7 @@ impl TaskProp {
             priority: format!("{:.2}", task.priority()),
             id: task.id,
             disc: task.is_disc(),
+            value: format!("{:.2}", task.value()),
         }
     }
 }
@@ -244,8 +250,8 @@ pub fn task_props() -> Vec<TaskProp> {
     tasks
 }
 
-pub fn tot_value_since() -> f32 {
-    let time = utils::current_time() - Duration::from_secs(86400);
+pub fn tot_value_since(since: Duration) -> f32 {
+    let time = utils::current_time() - since;
     let mut value = 0.;
     let mut tasks = Tasks::load_offline();
     tasks.prune_deleted();
@@ -268,9 +274,9 @@ impl TaskType {
         match self {
             Self::Disc => {
                 let name = args[0].clone();
-                let length = utils::str_as_mins(&args[2])?;
+                let length = utils::str_as_mins(&args[1])?;
                 let interval = utils::str_as_days(&args[2])?;
-                let value: f32 = args[4].parse().ok()?;
+                let value: f32 = args[3].parse().ok()?;
 
                 let logstuff = LogPriority::new(value, interval);
                 Some(Task::new(name, ValueEq::Log(logstuff), length))
@@ -291,7 +297,7 @@ impl TaskType {
         match (self, task) {
             (Self::Disc, Some(task)) => {
                 let length = format!("{:.2}", task.metadata.length.as_secs_f32() / 60.);
-                let interval = format!("{:.2}", task.factor());
+                let interval = format!("{:.2}", task.interval().as_secs_f32() / 86400.);
                 let value = format!("{:.2}", task.factor());
 
                 InputThing::new_w_default(vec![
