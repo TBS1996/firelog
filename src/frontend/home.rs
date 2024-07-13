@@ -49,7 +49,7 @@ pub fn Home() -> Element {
                                 img {
                                     width: "34px",
                                     height: "34px",
-                                    src: "sync.svg",
+                                    src: "hourglass.svg",
                                 }
                             } else {
                                 img {
@@ -110,7 +110,7 @@ pub fn Home() -> Element {
 
                 div {
                     margin_bottom: "50px",
-                    "xValue 24h: {valueform}"
+                    "Value 24h: {valueform}"
                 }
 
                 div {

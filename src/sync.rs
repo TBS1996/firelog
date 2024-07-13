@@ -66,6 +66,8 @@ impl Syncer {
 pub struct LogSyncRes {
     pub send_up: Vec<LogRecord>,
     pub save: TaskLog,
+    pub id: Uuid,
+    pub user_id: String,
 }
 
 pub fn sync_tasks(mut is_syncing: Signal<bool>) {
@@ -92,10 +94,13 @@ pub fn sync_tasks(mut is_syncing: Signal<bool>) {
 
         let res = Syncer::new(online_tasks, offline_tasks).sync();
 
-        for task in res.send_up {
-            let future = firebase::send_task_to_firestore(user.uid.clone(), &task);
-            future.await.unwrap();
-        }
+        let futs: Vec<_> = res
+            .send_up
+            .iter()
+            .map(|task| firebase::send_task_to_firestore(user.uid.clone(), &task))
+            .collect();
+
+        futures::future::join_all(futs).await;
 
         for (id, task) in res.download {
             let metadata = MetaData {
@@ -113,28 +118,28 @@ pub fn sync_tasks(mut is_syncing: Signal<bool>) {
         log("syncing logs");
         let all_tasks = cache::fetch_tasks().await;
 
-        // load all firestore logs and merge with offline ones
-        for id in all_tasks.into_keys() {
-            let offline_logs = TaskLog::load_logs(id).await;
-            let online_logs = {
-                let val = firebase::load_logs_for_task(user.uid.clone(), id)
-                    .await
-                    .await
-                    .unwrap();
+        let futs: Vec<_> = all_tasks
+            .into_keys()
+            .into_iter()
+            .map(|key| TaskLog::sync_id(key, user.uid.clone()))
+            .collect();
 
-                TaskLog::from_jsvalue(val)
-            };
+        let vals = futures::future::join_all(futs).await;
 
-            let res = TaskLog::sync(online_logs, offline_logs);
+        let mut outer_futs = vec![];
 
-            res.save.save_offline(id).await;
+        for res in vals {
+            res.save.save_offline(res.id).await;
+            let futs: Vec<_> = res
+                .send_up
+                .iter()
+                .map(|x| firebase::add_task_log_to_firestore(user.uid.clone(), res.id, *x))
+                .collect();
 
-            for log in res.send_up {
-                firebase::add_task_log_to_firestore(user.uid.clone(), id, log)
-                    .await
-                    .unwrap();
-            }
+            outer_futs.push(futures::future::join_all(futs));
         }
+
+        futures::future::join_all(outer_futs).await;
 
         is_syncing.set(false);
         tasks.set(task_props());

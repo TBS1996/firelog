@@ -327,6 +327,25 @@ impl TaskLog {
         Self(logs)
     }
 
+    pub async fn sync_id(id: TaskID, uid: String) -> LogSyncRes {
+        use crate::firebase;
+
+        let offline_logs = TaskLog::load_logs(id).await;
+        let online_logs = {
+            let val = firebase::load_logs_for_task(uid.clone(), id)
+                .await
+                .await
+                .unwrap();
+
+            Self::from_jsvalue(val)
+        };
+
+        let mut res = TaskLog::sync(online_logs, offline_logs);
+        res.id = id;
+        res.user_id = uid;
+        res
+    }
+
     pub fn sync(from_online: Self, from_offline: Self) -> LogSyncRes {
         let mut res = LogSyncRes::default();
         let mut send_up = vec![];
