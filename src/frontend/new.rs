@@ -83,7 +83,9 @@ pub fn Disc() -> Element {
     log("neww");
 
     let closure = move |task: Option<Task>| {
-        let task = task.unwrap();
+        let Some(task) = task else {
+            return;
+        };
 
         if let Some(user) = auth.user() {
             let future = firebase::send_task_to_firestore(user.uid.clone(), &task);
@@ -113,7 +115,9 @@ pub fn Cont() -> Element {
     let navigator = navigator();
 
     let closure = move |task: Option<Task>| {
-        let task = task.unwrap();
+        let Some(task) = task else {
+            return;
+        };
 
         log_to_console(&task);
         if let Some(user) = auth.user() {

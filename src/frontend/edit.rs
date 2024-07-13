@@ -32,7 +32,9 @@ pub fn Editcont(id: Uuid) -> Element {
 
     let closure = move |newtask: Option<Task>| {
         let mut oldtask = task.clone();
-        let newtask = newtask.unwrap();
+        let Some(newtask) = newtask else {
+            return;
+        };
 
         log("submitting!");
 
@@ -124,7 +126,9 @@ pub fn Edit(id: Uuid) -> Element {
 
     let closure = move |newtask: Option<Task>| {
         let mut oldtask = task.clone();
-        let newtask = newtask.unwrap();
+        let Some(newtask) = newtask else {
+            return;
+        };
 
         log("success!");
         oldtask.set_factor(newtask.factor());

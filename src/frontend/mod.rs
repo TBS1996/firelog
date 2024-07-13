@@ -1,12 +1,10 @@
 #![allow(non_snake_case)]
 
 use crate::cache;
-use crate::firebase;
 use crate::task::{Contask, LogPriority, Task, Tasks, ValueEq};
 use crate::utils;
 use crate::State;
 use dioxus::prelude::*;
-use futures::executor::block_on;
 use std::time::Duration;
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
@@ -123,15 +121,22 @@ fn wtf(
             },
             for mut x in inputs {
                 div {
-                    margin_bottom: "20px",
+                    margin_bottom: "1px",
+                    width: "200px",
                     div {
                         display: "flex",
                         flex_direction: "column",
+                        width: "200px",
                         justify_content: "space-between",
-                        p { "{x.label}" }
+                        p {
+                            text_align: "center",
+                            width: "200px",
+                            margin_bottom: "5px",
+                            "{x.label}" }
                         input {
                             r#type: if x.is_num {"number"} else {"text"},
                             value: (x.signal)(),
+                            width: "200px",
                             name: x.idx.to_string(),
                             autocomplete: "off",
                             step: if x.is_num {"any"},
@@ -144,6 +149,8 @@ fn wtf(
             button {
                 r#type: "submit",
                 class: "confirm",
+                margin_top: "10px",
+                width: "200px",
                 "Create task"
             }
         }
