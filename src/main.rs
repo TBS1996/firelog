@@ -114,6 +114,7 @@ struct StateInner {
     length: Signal<String>,
     interval: Signal<String>,
     factor: Signal<String>,
+    tasktype: Signal<String>,
     tasks: Signal<Vec<TaskProp>>,
     value_stuff: Signal<f32>,
 }
@@ -126,6 +127,7 @@ impl StateInner {
             length: Signal::new(String::new()),
             interval: Signal::new(String::new()),
             factor: Signal::new(String::new()),
+            tasktype: Signal::new(String::from("disc")),
             tasks: Signal::new(task_props()),
             value_stuff: Signal::new(tot_value_since()),
         }
@@ -361,10 +363,6 @@ enum Route {
     New {},
     #[route("/units/:id")]
     Units { id: Uuid },
-    #[route("/disc")]
-    Disc {},
-    #[route("/cont")]
-    Cont {},
     #[route("/about")]
     About {},
     #[route("/edit/:id")]
@@ -500,25 +498,14 @@ fn About() -> Element {
 
 #[component]
 fn Editcont(id: Uuid) -> Element {
-    let mut name = Signal::new(String::new());
-    let mut length = Signal::new(String::new());
-    let mut units = Signal::new(String::new());
-    let mut factor = Signal::new(String::new());
-    let mut unit_name = Signal::new(String::new());
-
     let task = Tasks::load_offline().get_task(id).unwrap();
+    let thetask = Tasks::load_offline().get_task(id).unwrap();
     let ratio = task.ratio();
     let value = task
         .metadata
         .value
         .value(&task.log, task.metadata.created, current_time());
 
-    let xunits = task.units();
-    let xfactor = task.factor() * xunits;
-    let xunit_name = task.unit_name();
-
-    let mut oldtask = task.clone();
-    log(&oldtask);
     let navigator = use_navigator();
 
     let logstr: Vec<String> = task
@@ -531,6 +518,31 @@ fn Editcont(id: Uuid) -> Element {
     let mut logstr = logstr.replace("\"", "");
     logstr.pop();
     logstr.remove(0);
+
+    let closure = move |newtask: Option<Task>| {
+        let mut oldtask = task.clone();
+        let newtask = newtask.unwrap();
+
+        log("submitting!");
+
+        log("success!");
+        oldtask.set_factor(newtask.factor());
+        oldtask.set_units(newtask.units());
+        oldtask.metadata.name = newtask.metadata.name;
+        oldtask.metadata.length = newtask.metadata.length;
+        oldtask.metadata.updated = current_time();
+
+        let mut all_tasks = Tasks::load_offline();
+        all_tasks.insert(oldtask.clone());
+        all_tasks.save_offline();
+
+        navigator.replace(Route::Home {});
+        State::refresh();
+    };
+
+    let form = rsx! {
+        { wtf(TaskType::Cont, Some(&thetask), closure) }
+    };
 
     rsx! {
         div {
@@ -571,118 +583,8 @@ fn Editcont(id: Uuid) -> Element {
 
             h3 { "ratio: {ratio}, value: {value}" }
 
+            { form }
 
-        form {
-            display: "flex",
-            flex_direction: "row",
-            onsubmit: move |event| {
-                let data = event.data().values();
-                log("submitting!");
-                let newtask = Task::cont_from_form(data);
-
-                if let Some(newtask) = newtask {
-                    log("success!");
-                    oldtask.set_factor(newtask.factor());
-                    oldtask.set_units(newtask.units());
-                    oldtask.metadata.name = newtask.metadata.name;
-                    oldtask.metadata.length = newtask.metadata.length;
-                    oldtask.metadata.updated = current_time();
-
-                    let mut all_tasks = Tasks::load_offline();
-                    all_tasks.insert(oldtask.clone());
-                    all_tasks.save_offline();
-                } else {
-                    log("fail!");
-                };
-
-                navigator.replace(Route::Home{});
-                State::refresh();
-
-            },
-            div {
-                class: "input-group",
-                display: "flex",
-                flex_direction: "column",
-
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    { "name" }
-                    input {
-                        r#type: "text",
-                        value: task.metadata.name,
-                        name: "name",
-                        autocomplete: "off",
-                        oninput: move |event| name.set(event.value()),
-                    }
-                }
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    { "unit name" }
-                    input {
-                        r#type: "text",
-                        value: xunit_name,
-                        name: "unit_name",
-                        autocomplete: "off",
-                        oninput: move |event| unit_name.set(event.value()),
-                    }
-                }
-                div {
-                    flex_direction: "row",
-                    display: "flex",
-                    justify_content: "space-between",
-                    { "length" }
-                    input {
-                        r#type: "number",
-                        min: "1",
-                        step: "any",
-                        name: "length",
-                        value: dur_to_mins(task.metadata.length),
-                        autocomplete: "off",
-                        oninput: move |event| length.set(event.value()),
-                    }
-                }
-
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    { "units" }
-                    input {
-                        r#type: "number",
-                        min: "0.01",
-                        step: "any",
-                        name: "units",
-                        value: xunits.to_string(),
-                        autocomplete: "off",
-                        oninput: move |event| units.set(event.value()),
-                    }
-                }
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    { "value" }
-                    input {
-                        r#type: "number",
-                        min: "0.001",
-                        step: "any",
-                        name: "factor",
-                        value: xfactor.to_string(),
-                        autocomplete: "off",
-                        oninput: move |event| factor.set(event.value()),
-                    }
-                }
-                button {
-                    r#type: "submit",
-                    class: "confirm",
-                    "Update task"
-                }
-           }
-            }
 
                h3 { "{logstr}" }
             }
@@ -692,16 +594,9 @@ fn Editcont(id: Uuid) -> Element {
 
 #[component]
 fn Edit(id: Uuid) -> Element {
-    let mut name = Signal::new(String::new());
-    let mut length = Signal::new(String::new());
-    let mut interval = Signal::new(String::new());
-    let mut factor = Signal::new(String::new());
-
     let task = Tasks::load_offline().get_task(id).unwrap();
-    let xinterval = task.interval();
-    let xfactor = task.factor();
 
-    let mut oldtask = task.clone();
+    let oldtask = task.clone();
     log(&oldtask);
     let navigator = use_navigator();
 
@@ -715,6 +610,29 @@ fn Edit(id: Uuid) -> Element {
     let mut logstr = logstr.replace("\"", "");
     logstr.pop();
     logstr.remove(0);
+
+    let closure = move |newtask: Option<Task>| {
+        let mut oldtask = task.clone();
+        let newtask = newtask.unwrap();
+
+        log("success!");
+        oldtask.set_factor(newtask.factor());
+        oldtask.set_interval(newtask.interval());
+        oldtask.metadata.name = newtask.metadata.name;
+        oldtask.metadata.length = newtask.metadata.length;
+        oldtask.metadata.updated = current_time();
+
+        let mut all_tasks = Tasks::load_offline();
+        all_tasks.insert(oldtask.clone());
+        all_tasks.save_offline();
+
+        navigator.replace(Route::Home {});
+        State::refresh();
+    };
+
+    let form = rsx! {
+        { wtf(TaskType::Disc, Some(&oldtask), closure) }
+    };
 
     rsx! {
 
@@ -754,106 +672,8 @@ fn Edit(id: Uuid) -> Element {
                 }
             }
 
+            { form }
 
-
-
-
-        form {
-            display: "flex",
-            flex_direction: "row",
-            onsubmit: move |event| {
-                let data = event.data().values();
-                log("submitting!");
-                let newtask = Task::from_form(data);
-
-                if let Some(newtask) = newtask {
-                log("success!");
-                    oldtask.set_factor(newtask.factor());
-                    oldtask.set_interval(newtask.interval());
-                    oldtask.metadata.name = newtask.metadata.name;
-                    oldtask.metadata.length = newtask.metadata.length;
-                    oldtask.metadata.updated = current_time();
-
-                    let mut all_tasks = Tasks::load_offline();
-                    all_tasks.insert(oldtask.clone());
-                    all_tasks.save_offline();
-                } else {
-                    log("fail!");
-                };
-
-                navigator.replace(Route::Home{});
-                State::refresh();
-
-            },
-            div {
-                class: "input-group",
-                display: "flex",
-                flex_direction: "column",
-
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    { "name" }
-                    input {
-                        r#type: "text",
-                        value: task.metadata.name,
-                        name: "name",
-                        autocomplete: "off",
-                        oninput: move |event| name.set(event.value()),
-                    }
-                }
-                div {
-                    flex_direction: "row",
-                    display: "flex",
-                    justify_content: "space-between",
-                    { "length" }
-                    input {
-                        r#type: "number",
-                        min: "1",
-                        step: "any",
-                        name: "length",
-                        value: dur_to_mins(task.metadata.length),
-                        autocomplete: "off",
-                        oninput: move |event| length.set(event.value()),
-                    }
-                }
-
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    { "interval" }
-                    input {
-                        r#type: "number",
-                        min: "0.01",
-                        step: "any",
-                        name: "interval",
-                        value: dur_to_days(xinterval),
-                        autocomplete: "off",
-                        oninput: move |event| interval.set(event.value()),
-                    }
-                }
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    { "value" }
-                    input {
-                        r#type: "number",
-                        name: "factor",
-                        value: xfactor.to_string(),
-                        autocomplete: "off",
-                        oninput: move |event| factor.set(event.value()),
-                    }
-                }
-                button {
-                    r#type: "submit",
-                    class: "confirm",
-                    "Update task"
-                }
-                   }
-                }
        h3 { "{logstr}" }
             }
         }
@@ -881,321 +701,178 @@ fn dur_to_mins(dur: Duration) -> String {
     (dur.as_secs() / 60).to_string()
 }
 
-#[component]
-fn Disc() -> Element {
-    let state = use_context::<State>();
+enum TaskType {
+    Disc,
+    Cont,
+}
 
-    let mut name = state.inner.lock().unwrap().name.clone();
-    let mut length = state.inner.lock().unwrap().length.clone();
-    let mut interval = state.inner.lock().unwrap().interval.clone();
-    let mut factor = state.inner.lock().unwrap().factor.clone();
-    let auth = (*state.inner.lock().unwrap().auth_status.clone().read()).clone();
-
-    let navigator = navigator();
-
-    log("neww");
-
-    rsx! {
-
-        div {
-            display: "flex",
-            justify_content: "center",
-            align_items: "center",
-            height: "100vh",
-
-
-
-            div {
-                padding: "20px",
-
-
-                        button {
-                            class: "emoji-button",
-                            onclick: move |_| {
-                                navigator.replace(Route::Home{});
-                            },
-
-                            img {
-                                width: "34px",
-                                height: "34px",
-                                src: "back_str()",
-                            }
-                        }
-
-
-
-
-        form {
-            display: "flex",
-            flex_direction: "row",
-            onsubmit: move |event| {
-                name.set(String::new());
-                length.set(String::new());
-                interval.set(String::new());
-                factor.set(String::new());
-
-                let data = event.data().values();
-                let task = Task::from_form(data);
-                log_to_console(&task);
-
-                if let Some(task) = task {
-                    if let Some(user) = auth.user() {
-                        let future = send_task_to_firestore(user.uid.clone(),&task);
-                        wasm_bindgen_futures::spawn_local(async {
-                            future.await.unwrap();
-                        });
-                    }
-
-                    let mut the_tasks = Tasks::load_offline();
-                    the_tasks.insert(task);
-                    the_tasks.save_offline();
-                }
-
-                navigator.replace(Route::Home{});
-                State::refresh();
-
-            },
-            div {
-                class: "input-group",
-                display: "flex",
-                flex_direction: "column",
-
-
-
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    { tooltip("name", "name of task") }
-                    input {
-                        r#type: "text",
-                        value: name(),
-                        name: "name",
-                        autocomplete: "off",
-                        oninput: move |event| name.set(event.value()),
-                    }
-                }
-
-                div {
-                    flex_direction: "row",
-                    display: "flex",
-                    justify_content: "space-between",
-                    { tooltip("length", "how many minutes does it take to finish this task?") }
-                    input {
-                        r#type: "number",
-                        min: "1",
-                        step: "any",
-                        name: "length",
-                        value: length(),
-                        autocomplete: "off",
-                        oninput: move |event| length.set(event.value()),
-                    }
-                }
-
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    { tooltip("interval", "approximately how often do you want to do this task, in days?") }
-                    input {
-                        r#type: "number",
-                        min: "0.01",
-                        step: "any",
-                        name: "interval",
-                        value: interval(),
-                        autocomplete: "off",
-                        oninput: move |event| interval.set(event.value()),
-                    }
-                }
-
-
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    { tooltip("value", "after {interval} days have passed, how much would you pay to have this task done if you couldn't have it done yourself?") }
-                    input {
-                        r#type: "number",
-                        name: "factor",
-                        value: factor(),
-                        autocomplete: "off",
-                        oninput: move |event| factor.set(event.value()),
-                    }
-                }
-
-                button {
-                    r#type: "submit",
-                    class: "confirm",
-                    "Create task"
-                }
-           }
-        }
+impl TaskType {
+    fn make_task(&self, args: Vec<String>) -> Option<Task> {
+        match self {
+            Self::Disc => {
+                let name = args[0].clone();
+                let unit_name = args[1].clone();
+                let length = str_as_mins(&args[2])?;
+                let daily_units: f32 = args[3].parse().ok()?;
+                let value: f32 = args[4].parse().ok()?;
+                let logstuff = Contask::new(daily_units, value, unit_name);
+                Some(Task::new(name, ValueEq::Cont(logstuff), length))
+            }
+            Self::Cont => {
+                let name = args[0].clone();
+                let unit_name = args[1].clone();
+                let length = str_as_mins(&args[2])?;
+                let daily_units: f32 = args[3].parse().ok()?;
+                let value: f32 = args[4].parse().ok()?;
+                let logstuff = Contask::new(daily_units, value, unit_name);
+                Some(Task::new(name, ValueEq::Cont(logstuff), length))
             }
         }
+    }
 
+    fn inputs(&self, task: Option<&Task>) -> Vec<InputThing> {
+        match (self, task) {
+            (Self::Disc, Some(task)) => {
+                let unit_name = task.unit_name();
+                let length = format!("{:.2}", task.metadata.length.as_secs_f32() / 60.);
+                let units = format!("{:.2}", task.units());
+                let value = format!("{:.2}", task.factor());
+
+                InputThing::new_w_default(vec![
+                    ("name", false, task.metadata.name.as_str()),
+                    ("unit name", false, &unit_name),
+                    ("length", true, &length),
+                    ("daily units", true, &units),
+                    ("value", true, &value),
+                ])
+            }
+            (Self::Cont, Some(task)) => {
+                let length = format!("{:.2}", task.metadata.length.as_secs_f32() / 60.);
+                let interval = format!("{:.2}", task.factor());
+                let value = format!("{:.2}", task.factor());
+
+                InputThing::new_w_default(vec![
+                    ("name", false, task.metadata.name.as_str()),
+                    ("length", true, &length),
+                    ("interval", true, &interval),
+                    ("value", true, &value),
+                ])
+            }
+            (Self::Disc, None) => InputThing::news(vec![
+                ("name", false),
+                ("length", true),
+                ("interval", true),
+                ("factor", true),
+            ]),
+            (Self::Cont, None) => InputThing::news(vec![
+                ("name", false),
+                ("unit name", false),
+                ("length", true),
+                ("daily units", true),
+                ("value", true),
+            ]),
+        }
     }
 }
 
-#[component]
-fn Cont() -> Element {
-    let state = use_context::<State>();
+struct InputThing {
+    label: String,
+    is_num: bool,
+    signal: Signal<String>,
+    idx: usize,
+}
 
-    let mut name = Signal::new(String::new());
-    let mut units = Signal::new(String::new());
-    let mut factor = Signal::new(String::new());
-    let mut length = Signal::new(String::new());
-
-    let auth = (*state.inner.lock().unwrap().auth_status.clone().read()).clone();
-
-    let navigator = navigator();
-
-    rsx! {
-
-        div {
-            display: "flex",
-            justify_content: "center",
-            align_items: "center",
-            height: "100vh",
-
-
-            div {
-                padding: "20px",
-
-
-                        button {
-                            class: "emoji-button",
-                            onclick: move |_| {
-                                navigator.replace(Route::Home{});
-                            },
-
-                            img {
-                                width: "34px",
-                                height: "34px",
-                                src: "back_str()",
-                            }
-                        }
-
-
-
-        form {
-            display: "flex",
-            flex_direction: "row",
-            onsubmit: move |event| {
-                name.set(String::new());
-                length.set(String::new());
-                units.set(String::new());
-                factor.set(String::new());
-
-                let data = event.data().values();
-                let task = Task::cont_from_form(data);
-                log_to_console(&task);
-
-                if let Some(task) = task {
-                    if let Some(user) = auth.user() {
-                        let future = send_task_to_firestore(user.uid.clone(),&task);
-                        wasm_bindgen_futures::spawn_local(async {
-                            future.await.unwrap();
-                        });
-                    }
-
-                    let mut the_tasks = Tasks::load_offline();
-                    the_tasks.insert(task);
-                    the_tasks.save_offline();
-                }
-
-                navigator.replace(Route::Home{});
-                State::refresh();
-
-            },
-            div {
-                class: "input-group",
-                display: "flex",
-                flex_direction: "column",
-
-
-
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    { tooltip("name", "name of task") }
-                    input {
-                        r#type: "text",
-                        value: name(),
-                        name: "name",
-                        autocomplete: "off",
-                        oninput: move |event| name.set(event.value()),
-                    }
-                }
-
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    { tooltip("unit name (plural)", "e.g. pages, minutes, kilometers") }
-                    input {
-                        r#type: "text",
-                        value: name(),
-                        name: "unit_name",
-                        autocomplete: "off",
-                        oninput: move |event| name.set(event.value()),
-                    }
-                }
-
-                div {
-                    flex_direction: "row",
-                    display: "flex",
-                    justify_content: "space-between",
-                    { tooltip("length", "how many minutes does it take to finish this task?") }
-                    input {
-                        r#type: "number",
-                        min: "1",
-                        step: "any",
-                        name: "length",
-                        value: length(),
-                        autocomplete: "off",
-                        oninput: move |event| length.set(event.value()),
-                    }
-                }
-
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    { tooltip("daily units", "approximately how often do you want to do this task, in days?") }
-                    input {
-                        r#type: "number",
-                        min: "0.1",
-                        step: "any",
-                        name: "units",
-                        value: units(),
-                        autocomplete: "off",
-                        oninput: move |event| units.set(event.value()),
-                    }
-                }
-
-
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    { tooltip("value", "after {interval} days have passed, how much would you pay to have this task done if you couldn't have it done yourself?") }
-                    input {
-                        r#type: "number",
-                        name: "factor",
-                        value: factor(),
-                        autocomplete: "off",
-                        oninput: move |event| factor.set(event.value()),
-                    }
-                }
-
-                button {
-                    r#type: "submit",
-                    class: "confirm",
-                    "Create task"
-                }
-           }
+impl InputThing {
+    fn new_def(label: &str, is_num: bool, idx: usize, default: &str) -> Self {
+        Self {
+            label: label.to_string(),
+            is_num,
+            signal: Signal::new(String::from(default)),
+            idx,
         }
+    }
+
+    fn new(label: &str, is_num: bool, idx: usize) -> Self {
+        Self::new_def(label, is_num, idx, "")
+    }
+
+    fn new_w_default(inp: Vec<(&str, bool, &str)>) -> Vec<Self> {
+        let mut v = vec![];
+
+        for (idx, (label, is_num, default)) in inp.into_iter().enumerate() {
+            v.push(Self::new_def(label, is_num, idx, default));
+        }
+
+        v
+    }
+
+    fn news(inp: Vec<(&str, bool)>) -> Vec<Self> {
+        let mut v = vec![];
+
+        for (idx, (label, is_num)) in inp.into_iter().enumerate() {
+            v.push(Self::new(label, is_num, idx));
+        }
+
+        v
+    }
+}
+
+fn wtf(
+    ty: TaskType,
+    task: Option<&Task>,
+    on_submit: impl Fn(Option<Task>) + 'static + Clone,
+) -> Element {
+    let inputs = ty.inputs(task);
+    let mut signals = vec![];
+
+    for x in &inputs {
+        signals.push(x.signal.clone());
+    }
+
+    let len = inputs.len();
+    rsx! {
+        form {
+            onsubmit: move |event| {
+                let strs = {
+                    let data = event.data().values();
+                    let mut strs: Vec<String> = vec![];
+                    for i in 0..len {
+                        strs.push(data.get(&i.to_string()).unwrap().as_value());
+                    }
+                    strs
+                };
+
+                for sig in &mut signals {
+                    sig.set(String::new());
+                }
+
+                let task = ty.make_task(strs);
+
+                on_submit(task);
+            },
+            for mut x in inputs {
+                div {
+                    margin_bottom: "50px",
+                    div {
+                        display: "flex",
+                        flex_direction: "column",
+                        justify_content: "space-between",
+                        p { "{x.label}" }
+                        input {
+                            r#type: if x.is_num {"number"} else {"text"},
+                            value: (x.signal)(),
+                            name: x.idx.to_string(),
+                            autocomplete: "off",
+                            oninput: move |event| x.signal.set(event.value()),
+                        }
+                    }
+                }
+            }
+
+            button {
+                r#type: "submit",
+                class: "confirm",
+                "Create task"
             }
         }
 
@@ -1204,31 +881,140 @@ fn Cont() -> Element {
 
 #[component]
 fn New() -> Element {
+    let state = use_context::<State>();
+    let mut selected_value = state.inner.lock().unwrap().tasktype.clone();
+    let navigator = navigator();
+
+    log("neww");
+
     rsx! {
         div {
             display: "flex",
             justify_content: "center",
             align_items: "center",
             height: "100vh",
-            flex_direction: "row",
 
-                        button {
-                            class: "emoji-button",
-                            onclick: move |_| {
-                            },
+            div {
+                padding: "20px",
 
-                            img {
-                                width: "34px",
-                                height: "34px",
-                                src: "{back_str()}",
-                            }
+                div {
+                    display: "flex",
+                    flex_direction: "row",
+                    button {
+                        class: "emoji-button",
+                        onclick: move |_| {
+                            navigator.replace( Route::Home{} );
+                        },
 
+                        img {
+                            width: "34px",
+                            height: "34px",
+                            src: "returning.svg",
                         }
+                    }
 
 
-                Link { margin_right: "50px", to: Route::Disc {}, "new discrete task" }
-                Link { to: Route::Cont {}, "new continuous task" }
+                    select {
+                        class: "dropdown",
+                        value: "{selected_value}",
+                        onchange: move |e| {
+                            log("foo");
+                            log(&e);
+                            let s = e.value().clone();
+                            log("baz");
+                            log(&s);
+                            *selected_value.write() = s;
+                            let x = selected_value.read();
+                            log("qux");
+                            log(x);
+                            log("bar");
+
+                        },
+                        option { value: "disc", "Discrete" },
+                        option { value: "cont", "Continuous" },
+                    }
+                }
+
+                if *selected_value.read() == "disc" {
+                    { Disc() }
+                } else {
+                    { Cont() }
+                }
+            }
         }
+    }
+}
+
+fn str_as_mins(s: &str) -> Option<Duration> {
+    let mins: f32 = s.parse().ok()?;
+    Some(Duration::from_secs_f32(mins * 60.))
+}
+
+fn str_as_days(s: &str) -> Option<Duration> {
+    let mins: f32 = s.parse().ok()?;
+    Some(Duration::from_secs_f32(mins * 86400.))
+}
+
+#[component]
+fn Disc() -> Element {
+    let state = use_context::<State>();
+
+    let auth = (*state.inner.lock().unwrap().auth_status.clone().read()).clone();
+
+    let navigator = navigator();
+
+    log("neww");
+
+    let closure = move |task: Option<Task>| {
+        let task = task.unwrap();
+
+        if let Some(user) = auth.user() {
+            let future = send_task_to_firestore(user.uid.clone(), &task);
+            wasm_bindgen_futures::spawn_local(async {
+                future.await.unwrap();
+            });
+        }
+
+        let mut the_tasks = Tasks::load_offline();
+        the_tasks.insert(task);
+        the_tasks.save_offline();
+        navigator.replace(Route::Home {});
+        State::refresh();
+    };
+
+    rsx! {
+        { wtf(TaskType::Disc, None, closure) }
+    }
+}
+
+#[component]
+fn Cont() -> Element {
+    let state = use_context::<State>();
+
+    let auth = (*state.inner.lock().unwrap().auth_status.clone().read()).clone();
+
+    let navigator = navigator();
+
+    let closure = move |task: Option<Task>| {
+        let task = task.unwrap();
+
+        log_to_console(&task);
+        if let Some(user) = auth.user() {
+            let future = send_task_to_firestore(user.uid.clone(), &task);
+            wasm_bindgen_futures::spawn_local(async {
+                future.await.unwrap();
+            });
+        }
+
+        let mut the_tasks = Tasks::load_offline();
+        the_tasks.insert(task);
+        the_tasks.save_offline();
+        navigator.replace(Route::Home {});
+        State::refresh();
+    };
+
+    rsx! {
+           { wtf(TaskType::Cont, None, closure) }
     }
 }
 
@@ -1837,54 +1623,6 @@ impl Task {
                 }
             });
         }
-    }
-
-    fn cont_from_form(form: HashMap<String, FormValue>) -> Option<Self> {
-        log("name");
-        let name = form.get("name")?.as_value();
-        let units: f32 = form.get("units")?.as_value().parse().ok()?;
-        let value: f32 = form.get("factor")?.as_value().parse().ok()?;
-        // Value is calculated per unit. But it makes sense that the user inputs
-        // the value per the daily units.
-        let value = value / units;
-        let unit_name: String = form.get("unit_name")?.as_value().to_string();
-
-        let length = {
-            let length = form.get("length")?.as_value();
-            let mins: f32 = length.parse().ok()?;
-            Duration::from_secs_f32(mins * 60.)
-        };
-
-        let logstuff = Contask::new(units, value, unit_name);
-        Some(Self::new(name, ValueEq::Cont(logstuff), length))
-    }
-
-    fn from_form(form: HashMap<String, FormValue>) -> Option<Self> {
-        log("name");
-        let name = form.get("name")?.as_value();
-        log("factor");
-
-        let factor: f32 = form.get("factor")?.as_value().parse().ok()?;
-        log("interval");
-
-        let interval = {
-            let interval = form.get("interval")?.as_value();
-            let days: f32 = interval.parse().ok()?;
-            Duration::from_secs_f32(days * 86400.)
-        };
-        log("length");
-
-        let length = {
-            let length = form.get("length")?.as_value();
-            let mins: f32 = length.parse().ok()?;
-            Duration::from_secs_f32(mins * 60.)
-        };
-        log("logstuff");
-
-        let logstuff = LogPriority::new(factor, interval);
-        log("selv");
-
-        Some(Self::new(name, ValueEq::Log(logstuff), length))
     }
 
     /// Hourly wage

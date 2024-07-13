@@ -26,7 +26,8 @@ input {
     border-radius: 1vh;
     border-color: lightskyblue;
     border-style: solid;
-    max-width: 80px;
+    height: 30px;
+    max-width: 150px;
 }
 
 input[type=number]::-webkit-outer-spin-button,
@@ -104,3 +105,28 @@ form {
     filter: brightness(0.7);
 }
 
+
+.dropdown {
+    padding: 7px;
+    font-size: 14px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    width: 110px;
+    margin-bottom: 20px;
+    transition: border-color 0.3s;
+}
+.dropdown:hover {
+    border-color: #888;
+}
+
+
+
+.input-container {
+    padding: 7px;
+    font-size: 14px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    width: 110px;
+    margin-bottom: 20px;
+    transition: border-color 0.3s;
+}
