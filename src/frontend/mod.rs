@@ -86,6 +86,19 @@ pub enum Route {
     Editcont { id: Uuid },
 }
 
+impl Route {
+    fn has_args(&self) -> bool {
+        match self {
+            Self::Home { .. } => false,
+            Self::New { .. } => false,
+            Self::Units { .. } => true,
+            Self::About { .. } => false,
+            Self::Edit { .. } => true,
+            Self::Editcont { .. } => true,
+        }
+    }
+}
+
 fn wtf(
     ty: TaskType,
     task: Option<&Task>,
@@ -128,11 +141,24 @@ fn wtf(
                         flex_direction: "column",
                         width: "200px",
                         justify_content: "space-between",
-                        p {
-                            text_align: "center",
-                            width: "200px",
-                            margin_bottom: "5px",
-                            "{x.label}" }
+                        div {
+                            display: "flex",
+                            flex_direction: "row",
+                            align_items: "center",
+                            p {
+                                text_align: "center",
+                                width: "200px",
+                                margin_bottom: "5px",
+                                "{x.label}"
+                            }
+                            if let Some(txt) = x.tooltip {
+                                    div {
+                                        margin_left: "5px",
+                                        vertical_align: "middle",
+                                        { qmtt(&txt, 20) }
+                                    }
+                            }
+                        }
                         input {
                             r#type: if x.is_num {"number"} else {"text"},
                             value: (x.signal)(),
@@ -154,7 +180,6 @@ fn wtf(
                 "Create task"
             }
         }
-
     }
 }
 
@@ -270,10 +295,10 @@ impl TaskType {
                 let value = format!("{:.2}", task.factor());
 
                 InputThing::new_w_default(vec![
-                    ("name", false, task.metadata.name.as_str()),
-                    ("length", true, &length),
-                    ("interval", true, &interval),
-                    ("value", true, &value),
+                    ("name", false, task.metadata.name.as_str(), None),
+                    ("length", true, &length, None),
+                    ("interval", true, &interval, None),
+                    ("value", true, &value, None),
                 ])
             }
             (Self::Cont, Some(task)) => {
@@ -283,25 +308,25 @@ impl TaskType {
                 let value = format!("{:.2}", task.factor());
 
                 InputThing::new_w_default(vec![
-                    ("name", false, task.metadata.name.as_str()),
-                    ("unit name", false, &unit_name),
-                    ("length", true, &length),
-                    ("daily units", true, &units),
-                    ("value", true, &value),
+                    ("name", false, task.metadata.name.as_str(), None),
+                    ("unit name", false, &unit_name, None),
+                    ("length", true, &length, None),
+                    ("daily units", true, &units, None),
+                    ("value", true, &value, None),
                 ])
             }
-            (Self::Disc, None) => InputThing::news(vec![
-                ("name", false),
-                ("length", true),
-                ("interval", true),
-                ("factor", true),
+            (Self::Disc, None) => InputThing::new_w_default(vec![
+                ("name", false, "", Some("name of task")),
+                ("length", true, "", Some("minutes to complete the task")),
+                ("interval", true, "", Some("how often you'd do the task (in days)")),
+                ("factor", true, "", Some("How much you'd pay to have task done after 'interval' days. If you couldn't do it yourself")),
             ]),
-            (Self::Cont, None) => InputThing::news(vec![
-                ("name", false),
-                ("unit name", false),
-                ("length", true),
-                ("daily units", true),
-                ("value", true),
+            (Self::Cont, None) => InputThing::new_w_default(vec![
+                ("name", false, "", Some("name of task")),
+                ("unit name", false, "", Some("name of unit, e.g. minutes, pages, kilometers")),
+                ("length", true, "", Some("time to finish one unit")),
+                ("daily units", true, "", Some("Approx how many units you want to do per day")),
+                ("value", true, "", Some("How much you'd pay to have all daily units done if you couldn't do them yourself")),
             ]),
         }
     }
@@ -312,39 +337,72 @@ struct InputThing {
     is_num: bool,
     signal: Signal<String>,
     idx: usize,
+    tooltip: Option<String>,
 }
 
 impl InputThing {
-    fn new_def(label: &str, is_num: bool, idx: usize, default: &str) -> Self {
+    fn new_full(
+        label: &str,
+        is_num: bool,
+        idx: usize,
+        default: &str,
+        tooltip: Option<String>,
+    ) -> Self {
         Self {
             label: label.to_string(),
             is_num,
             signal: Signal::new(String::from(default)),
             idx,
+            tooltip,
         }
     }
 
-    fn new(label: &str, is_num: bool, idx: usize) -> Self {
-        Self::new_def(label, is_num, idx, "")
-    }
-
-    fn new_w_default(inp: Vec<(&str, bool, &str)>) -> Vec<Self> {
+    fn new_w_default(inp: Vec<(&str, bool, &str, Option<&str>)>) -> Vec<Self> {
         let mut v = vec![];
 
-        for (idx, (label, is_num, default)) in inp.into_iter().enumerate() {
-            v.push(Self::new_def(label, is_num, idx, default));
+        for (idx, (label, is_num, default, tooltip)) in inp.into_iter().enumerate() {
+            v.push(Self::new_full(
+                label,
+                is_num,
+                idx,
+                default,
+                tooltip.map(ToOwned::to_owned),
+            ));
         }
 
         v
     }
+}
 
-    fn news(inp: Vec<(&str, bool)>) -> Vec<Self> {
-        let mut v = vec![];
+fn qmark_str() -> &'static str {
+    include_str!("../../assets/qmark64")
+}
 
-        for (idx, (label, is_num)) in inp.into_iter().enumerate() {
-            v.push(Self::new(label, is_num, idx));
+pub fn qmtt(msg: &str, size: usize) -> Element {
+    let size = format!("{}px", size.to_string());
+    let has_args = use_route::<Route>().has_args();
+
+    rsx! {
+        div {
+            class: "tooltip-container",
+            if has_args {
+                img {
+                    width: "{size}",
+                    height: "{size}",
+                    src: "{qmark_str()}",
+                }
+            } else {
+                img {
+                    width: "{size}",
+                    height: "{size}",
+                    src: "questionmark.svg",
+                }
+
+            }
+            div {
+                class: "tooltip-text",
+                "{msg}"
+            }
         }
-
-        v
     }
 }

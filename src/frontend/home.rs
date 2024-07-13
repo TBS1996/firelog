@@ -30,7 +30,6 @@ pub fn Home() -> Element {
 
             div {
                 padding: "20px",
-
                 div {
                     display: "flex",
                     flex_direction: "row",
