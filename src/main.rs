@@ -110,26 +110,20 @@ impl AuthStatus {
 #[derive(Clone, Default)]
 struct StateInner {
     auth_status: Signal<AuthStatus>,
-    name: Signal<String>,
-    length: Signal<String>,
-    interval: Signal<String>,
-    factor: Signal<String>,
     tasktype: Signal<String>,
     tasks: Signal<Vec<TaskProp>>,
     value_stuff: Signal<f32>,
+    is_syncing: Signal<bool>,
 }
 
 impl StateInner {
     fn load() -> Self {
         Self {
             auth_status: Signal::new(AuthStatus::Nope),
-            name: Signal::new(String::new()),
-            length: Signal::new(String::new()),
-            interval: Signal::new(String::new()),
-            factor: Signal::new(String::new()),
             tasktype: Signal::new(String::from("disc")),
             tasks: Signal::new(task_props()),
             value_stuff: Signal::new(tot_value_since()),
+            is_syncing: Signal::new(false),
         }
     }
 }
@@ -283,7 +277,7 @@ impl Syncer {
     }
 }
 
-fn sync_tasks() {
+fn sync_tasks(mut is_syncing: Signal<bool>) {
     let state = use_context::<State>();
 
     let x = (*state.inner.lock().unwrap().auth_status.read()).clone();
@@ -302,6 +296,7 @@ fn sync_tasks() {
     let offline_tasks = Tasks::load_offline();
 
     wasm_bindgen_futures::spawn_local(async move {
+        is_syncing.set(true);
         let online_tasks = MetaData::from_jsvalue(task_future.await.unwrap());
 
         let res = Syncer::new(online_tasks, offline_tasks).sync();
@@ -350,6 +345,7 @@ fn sync_tasks() {
             }
         }
 
+        is_syncing.set(false);
         tasks.set(task_props());
         value_stuff.set(tot_value_since());
     });
@@ -733,6 +729,18 @@ impl TaskType {
     fn inputs(&self, task: Option<&Task>) -> Vec<InputThing> {
         match (self, task) {
             (Self::Disc, Some(task)) => {
+                let length = format!("{:.2}", task.metadata.length.as_secs_f32() / 60.);
+                let interval = format!("{:.2}", task.factor());
+                let value = format!("{:.2}", task.factor());
+
+                InputThing::new_w_default(vec![
+                    ("name", false, task.metadata.name.as_str()),
+                    ("length", true, &length),
+                    ("interval", true, &interval),
+                    ("value", true, &value),
+                ])
+            }
+            (Self::Cont, Some(task)) => {
                 let unit_name = task.unit_name();
                 let length = format!("{:.2}", task.metadata.length.as_secs_f32() / 60.);
                 let units = format!("{:.2}", task.units());
@@ -743,18 +751,6 @@ impl TaskType {
                     ("unit name", false, &unit_name),
                     ("length", true, &length),
                     ("daily units", true, &units),
-                    ("value", true, &value),
-                ])
-            }
-            (Self::Cont, Some(task)) => {
-                let length = format!("{:.2}", task.metadata.length.as_secs_f32() / 60.);
-                let interval = format!("{:.2}", task.factor());
-                let value = format!("{:.2}", task.factor());
-
-                InputThing::new_w_default(vec![
-                    ("name", false, task.metadata.name.as_str()),
-                    ("length", true, &length),
-                    ("interval", true, &interval),
                     ("value", true, &value),
                 ])
             }
@@ -852,7 +848,7 @@ fn wtf(
             },
             for mut x in inputs {
                 div {
-                    margin_bottom: "50px",
+                    margin_bottom: "20px",
                     div {
                         display: "flex",
                         flex_direction: "column",
@@ -863,6 +859,7 @@ fn wtf(
                             value: (x.signal)(),
                             name: x.idx.to_string(),
                             autocomplete: "off",
+                            step: if x.is_num {"any"},
                             oninput: move |event| x.signal.set(event.value()),
                         }
                     }
@@ -1039,6 +1036,7 @@ fn Home() -> Element {
     let mut value_stuff = state.inner.lock().unwrap().value_stuff.clone();
     let valueform = format!("{:.2}", value_stuff);
     let mut auth = state.inner.lock().unwrap().auth_status.clone();
+    let is_syncing = state.inner.lock().unwrap().is_syncing.clone();
 
     let navigator = use_navigator();
 
@@ -1063,15 +1061,23 @@ fn Home() -> Element {
                         button {
                             class: "emoji-button",
                             onclick: move |_| {
-                                sync_tasks();
+                                sync_tasks(is_syncing.clone());
                                 tasks.set(task_props());
                                 value_stuff.set(tot_value_since());
                             },
 
-                            img {
-                                width: "34px",
-                                height: "34px",
-                                src: "sync.svg",
+                            if is_syncing() {
+                                img {
+                                    width: "34px",
+                                    height: "34px",
+                                    src: "sync.svg",
+                                }
+                            } else {
+                                img {
+                                    width: "34px",
+                                    height: "34px",
+                                    src: "sync.svg",
+                                }
                             }
 
                         }
@@ -1125,7 +1131,7 @@ fn Home() -> Element {
 
                 div {
                     margin_bottom: "50px",
-                    "Value 24h: {valueform}"
+                    "xValue 24h: {valueform}"
                 }
 
                 div {
@@ -1715,9 +1721,6 @@ async fn fetch_tasks() -> HashMap<Uuid, Task> {
     log("fetching tasks");
     let metadata = fetch_metadata().await;
     let logs = fetch_logs().await;
-
-    //log(("metadata: ", &metadata));
-    //log(("logs: ", &logs));
 
     let mut tasks = HashMap::default();
 
