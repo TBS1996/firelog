@@ -50,6 +50,20 @@ impl State {
     }
 }
 
+fn try_persistent_signed_in(mut auth: Signal<AuthStatus>) {
+    let future = firebase::is_authed();
+    wasm_bindgen_futures::spawn_local(async move {
+        let x = future.await.await.unwrap_or_default();
+        let y = x.as_bool().unwrap();
+        if y {
+            if let Some(uid) = cache::load("uid").await {
+                let bruh = AuthStatus::Auth(AuthUser { uid });
+                auth.set(bruh);
+            }
+        }
+    });
+}
+
 #[derive(Clone, Default)]
 struct StateInner {
     auth_status: Signal<AuthStatus>,
@@ -61,8 +75,11 @@ struct StateInner {
 
 impl StateInner {
     fn load() -> Self {
+        let auth_status = Signal::new(AuthStatus::Nope);
+        try_persistent_signed_in(auth_status.clone());
+
         Self {
-            auth_status: Signal::new(AuthStatus::Nope),
+            auth_status,
             tasktype: Signal::new(String::from("disc")),
             tasks: Signal::new(task_props()),
             value_stuff: Signal::new(tot_value_since()),

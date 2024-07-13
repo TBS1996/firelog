@@ -1,9 +1,12 @@
 #![allow(non_snake_case)]
 
+use crate::cache;
+use crate::firebase;
 use crate::task::{Contask, LogPriority, Task, Tasks, ValueEq};
 use crate::utils;
 use crate::State;
 use dioxus::prelude::*;
+use futures::executor::block_on;
 use std::time::Duration;
 use uuid::Uuid;
 use wasm_bindgen::prelude::*;
@@ -39,8 +42,8 @@ impl AuthUser {
 
         let wtf: serde_json::Value = JsValueSerdeExt::into_serde(&val).unwrap();
         let obj = wtf.as_object().unwrap();
-
         let uid = obj.get("uid").unwrap().as_str().unwrap().to_owned();
+        cache::save("uid", &uid);
 
         Self { uid }
     }
@@ -55,10 +58,9 @@ pub enum AuthStatus {
 
 impl AuthStatus {
     pub fn user(&self) -> Option<AuthUser> {
-        if let Self::Auth(user) = &self {
-            Some(user.clone())
-        } else {
-            None
+        match self {
+            Self::Auth(user) => Some(user.clone()),
+            Self::Nope => None,
         }
     }
 

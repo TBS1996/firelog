@@ -88,3 +88,35 @@ pub async fn fetch_metadata() -> HashMap<Uuid, MetaData> {
         }
     }
 }
+
+pub fn save(key: &str, val: &str) {
+    let storage: Storage = window()
+        .expect("no global `window` exists")
+        .local_storage()
+        .expect("no local storage")
+        .expect("local storage unavailable");
+
+    storage
+        .set_item(key, val)
+        .expect("Unable to set item in local storage");
+    log_to_console("Stored tasks in local storage");
+}
+
+pub async fn load(key: &str) -> Option<String> {
+    log_to_console("Starting fetch_tasks");
+
+    let storage: Storage = window()
+        .expect("no global `window` exists")
+        .local_storage()
+        .expect("no local storage")
+        .expect("local storage unavailable");
+
+    let tasks_str = storage.get_item(key).unwrap_or_else(|_| {
+        log_to_console("Error retrieving item from local storage");
+        None
+    });
+
+    log_to_console("Completed localStorage call");
+
+    tasks_str
+}

@@ -17,10 +17,16 @@ extern "C" {
         log_factor: &JsValue,
     ) -> Promise;
     fn loadLogsForTask(user_id: &JsValue, task_id: &JsValue) -> Promise;
+    pub fn isUserAuthenticated() -> Promise;
     pub fn signInWithGoogle() -> Promise;
     fn signOutUser() -> Promise;
     fn xonAuthStateChanged(callback: &JsValue);
     fn getCurrentUser() -> JsValue;
+}
+
+pub async fn is_authed() -> JsFuture {
+    let promise = isUserAuthenticated();
+    wasm_bindgen_futures::JsFuture::from(promise)
 }
 
 pub async fn load_logs_for_task(user_id: String, task_id: Uuid) -> JsFuture {

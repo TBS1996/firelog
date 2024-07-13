@@ -21,6 +21,22 @@ const provider = new GoogleAuthProvider();
 
 console.log("Firebase initialized:", db);
 
+export async function isUserAuthenticated() {
+    const user = auth.currentUser;
+    if (user) {
+        try {
+            // Force refresh to check token validity
+            await user.getIdToken(true);
+            return true; // Token is valid and user is authenticated
+        } catch (error) {
+            console.error('Error refreshing token:', error);
+            return false; // Token refresh failed, user is not authenticated
+        }
+    } else {
+        return false; // No user is currently signed in
+    }
+}
+
 export async function signInWithGoogle() {
     try {
         const result = await signInWithPopup(auth, provider);
