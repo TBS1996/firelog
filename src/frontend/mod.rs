@@ -260,9 +260,9 @@ impl TaskType {
         match self {
             Self::Disc => {
                 let name = args[0].clone();
-                let length = utils::str_as_mins(&args[1])?;
-                let interval = utils::str_as_days(&args[2])?;
-                let value: f32 = args[3].parse().ok()?;
+                let interval = utils::str_as_days(&args[1])?;
+                let value: f32 = args[2].parse().ok()?;
+                let length = utils::str_as_mins(&args[3])?;
 
                 let logstuff = LogPriority::new(value, interval);
                 Some(Task::new(name, ValueEq::Log(logstuff), length))
@@ -270,10 +270,10 @@ impl TaskType {
             Self::Cont => {
                 let name = args[0].clone();
                 let unit_name = args[1].clone();
-                let length = utils::str_as_mins(&args[2])?;
                 let daily_units: f32 = args[3].parse().ok()?;
                 let value: f32 = args[4].parse().ok()?;
                 let value = value / daily_units;
+                let length = utils::str_as_mins(&args[2])?;
                 let logstuff = Contask::new(daily_units, value, unit_name);
                 Some(Task::new(name, ValueEq::Cont(logstuff), length))
             }
@@ -289,9 +289,9 @@ impl TaskType {
 
                 InputThing::new_w_default(vec![
                     ("name", false, task.metadata.name.as_str(), None),
-                    ("length", true, &length, None),
                     ("interval", true, &interval, None),
                     ("value", true, &value, None),
+                    ("length", true, &length, None),
                 ])
             }
             (Self::Cont, Some(task)) => {
@@ -303,23 +303,23 @@ impl TaskType {
                 InputThing::new_w_default(vec![
                     ("name", false, task.metadata.name.as_str(), None),
                     ("unit name", false, &unit_name, None),
-                    ("length", true, &length, None),
                     ("daily units", true, &units, None),
                     ("value", true, &value, None),
+                    ("length", true, &length, None),
                 ])
             }
             (Self::Disc, None) => InputThing::new_w_default(vec![
                 ("name", false, "", Some("name of task")),
-                ("length", true, "", Some("minutes to complete the task")),
                 ("interval", true, "", Some("how often you'd do the task (in days)")),
-                ("factor", true, "", Some("How much you'd pay to have task done after 'interval' days. If you couldn't do it yourself")),
+                ("value", true, "", Some("How much you'd pay to have task done after 'interval' days. If you couldn't do it yourself")),
+                ("length", true, "", Some("minutes to complete the task")),
             ]),
             (Self::Cont, None) => InputThing::new_w_default(vec![
                 ("name", false, "", Some("name of task")),
                 ("unit name", false, "", Some("name of unit, e.g. minutes, pages, kilometers")),
-                ("length", true, "", Some("time to finish one unit")),
                 ("daily units", true, "", Some("Approx how many units you want to do per day")),
                 ("value", true, "", Some("How much you'd pay to have all daily units done if you couldn't do them yourself")),
+                ("length", true, "", Some("time to finish one unit")),
             ]),
         }
     }

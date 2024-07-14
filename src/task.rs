@@ -506,13 +506,14 @@ pub enum ValueEq {
 
 impl ValueEq {
     pub fn value(&self, logs: &TaskLog, created: UnixTime, current_time: UnixTime) -> f32 {
-        let last_completed = logs.last_completed().unwrap_or(created);
-        let time_since = current_time - last_completed;
-
         match self {
             Self::Const(f) => *f,
             Self::Cont(c) => c.value(logs, current_time),
-            Self::Log(log) => log.value(time_since),
+            Self::Log(log) => {
+                let last_completed = logs.last_completed().unwrap_or(created - log.interval);
+                let time_since = current_time - last_completed;
+                log.value(time_since)
+            }
         }
     }
 }
