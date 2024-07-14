@@ -15,16 +15,17 @@ pub fn Editcont(id: Uuid) -> Element {
     let navigator = use_navigator();
 
     let closure = move |newtask: Option<Task>| {
-        let mut oldtask = task.clone();
         let Some(newtask) = newtask else {
             return;
         };
+        let mut oldtask = task.clone();
 
         log("submitting!");
 
         log("success!");
         oldtask.set_factor(newtask.factor());
         oldtask.set_units(newtask.units());
+        oldtask.set_unit_name(newtask.unit_name());
         oldtask.metadata.name = newtask.metadata.name;
         oldtask.metadata.length = newtask.metadata.length;
         oldtask.metadata.updated = utils::current_time();

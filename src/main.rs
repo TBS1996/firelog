@@ -55,12 +55,16 @@ impl State {
 fn try_persistent_signed_in(mut auth: Signal<AuthStatus>) {
     let future = firebase::is_authed();
     wasm_bindgen_futures::spawn_local(async move {
-        let x = future.await.unwrap_or_default();
-        let y = x.as_bool().unwrap();
-        if y {
+        log("attempt persistent sign in");
+        let res = future.await;
+        log(("auth feedback: ", &res));
+
+        let is_auth = res.unwrap_or_default().as_bool().unwrap();
+        if is_auth {
             if let Some(uid) = cache::load_uid().await {
-                let bruh = AuthStatus::Auth(AuthUser { uid });
-                auth.set(bruh);
+                let stat = AuthStatus::Auth(AuthUser { uid });
+                auth.set(stat);
+                log("persist auth set");
             }
         }
     });

@@ -5,6 +5,7 @@ use super::*;
 use crate::firebase;
 use crate::sync::sync_tasks;
 use crate::task::Tasks;
+use crate::utils;
 use crate::State;
 
 #[component]
@@ -49,17 +50,11 @@ pub fn Home() -> Element {
                             },
 
                             if is_syncing() {
-                                img {
-                                    width: "34px",
-                                    height: "34px",
-                                    src: "hourglass.svg",
-                                }
+
+                                { tooltip_image("hourglass.svg", "syncing in progress", 34, 0.4) }
+
                             } else {
-                                img {
-                                    width: "34px",
-                                    height: "34px",
-                                    src: "sync.svg",
-                                }
+                                { tooltip_image("sync.svg", "initiate sync", 34, 0.4) }
                             }
 
                         }
@@ -75,11 +70,9 @@ pub fn Home() -> Element {
                                 });
                             },
 
-                            img {
-                                width: "34px",
-                                height: "34px",
-                                src: "signin.svg",
-                            }
+
+                            { tooltip_image("signin.svg", "sign in", 34, 0.4) }
+
                         }
                     }
 
@@ -89,11 +82,8 @@ pub fn Home() -> Element {
                             navigator.replace(Route::New{});
                         },
 
-                        img {
-                            width: "34px",
-                            height: "34px",
-                            src: "addnew.svg",
-                        }
+                        { tooltip_image("addnew.svg", "new task", 34, 0.4) }
+
                     }
 
                     button {
@@ -101,7 +91,7 @@ pub fn Home() -> Element {
                         onclick: move |_| {
                             State::refresh();
                         },
-                        "🔄"
+                        { tooltip("🔄", "update", 0.4) }
                     }
                 }
 
@@ -183,7 +173,7 @@ pub fn Home() -> Element {
                             }
                             span {
                                 margin_right: "5px",
-                                { tooltip(&task.priority, &format!("value: {}", &task.value)) }
+                                { tooltip(&task.priority, &format!("value: {}", &task.value), 0.8) }
                             }
 
                             if task.disc {

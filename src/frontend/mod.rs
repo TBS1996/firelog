@@ -187,20 +187,6 @@ fn wtf(
     }
 }
 
-pub fn tooltip(main_text: &str, tooltip: &str) -> Element {
-    rsx! {
-        div {
-            class: "tooltip-container",
-            "{main_text}",
-            div {
-                class: "tooltip-text",
-                z_index: "5000",
-                "{tooltip}"
-            }
-        }
-    }
-}
-
 pub fn log(message: impl std::fmt::Debug) -> impl std::fmt::Debug {
     log_to_console(&message);
     message
@@ -287,6 +273,7 @@ impl TaskType {
                 let length = utils::str_as_mins(&args[2])?;
                 let daily_units: f32 = args[3].parse().ok()?;
                 let value: f32 = args[4].parse().ok()?;
+                let value = value / daily_units;
                 let logstuff = Contask::new(daily_units, value, unit_name);
                 Some(Task::new(name, ValueEq::Cont(logstuff), length))
             }
@@ -311,7 +298,7 @@ impl TaskType {
                 let unit_name = task.unit_name();
                 let length = format!("{:.2}", task.metadata.length.as_secs_f32() / 60.);
                 let units = format!("{:.2}", task.units());
-                let value = format!("{:.2}", task.factor());
+                let value = format!("{:.2}", task.factor() * task.units());
 
                 InputThing::new_w_default(vec![
                     ("name", false, task.metadata.name.as_str(), None),
@@ -384,31 +371,52 @@ fn qmark_str() -> &'static str {
     include_str!("../../assets/qmark64")
 }
 
-pub fn qmtt(msg: &str, size: usize) -> Element {
-    let size = format!("{}px", size.to_string());
-    let has_args = use_route::<Route>().has_args();
+pub fn tooltip(main_text: &str, tooltip: &str, text_size: f32) -> Element {
+    let text_size = format!("{}em", text_size);
+    rsx! {
+        div {
+            class: "tooltip-container",
+            color: "#666",
+            "{main_text}",
+            div {
+                class: "tooltip-text",
+                font_size: text_size,
+                z_index: "5000",
+                color: "white",
+                "{tooltip}"
+            }
+        }
+    }
+}
+
+pub fn tooltip_image(src: &str, msg: &str, img_size: usize, text_size: f32) -> Element {
+    let size = format!("{}px", img_size.to_string());
+    let text_size = format!("{}em", text_size);
 
     rsx! {
         div {
             class: "tooltip-container",
-            if has_args {
-                img {
-                    width: "{size}",
-                    height: "{size}",
-                    src: "{qmark_str()}",
-                }
-            } else {
-                img {
-                    width: "{size}",
-                    height: "{size}",
-                    src: "questionmark.svg",
-                }
-
+            img {
+                width: "{size}",
+                height: "{size}",
+                src: "{src}",
             }
             div {
                 class: "tooltip-text",
+                font_size: text_size,
+                color: "white",
                 "{msg}"
             }
         }
     }
+}
+
+pub fn qmtt(msg: &str, size: usize) -> Element {
+    let src = if use_route::<Route>().has_args() {
+        qmark_str()
+    } else {
+        "questionmark.svg"
+    };
+
+    tooltip_image(src, msg, size, 1.2)
 }

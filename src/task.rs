@@ -189,6 +189,15 @@ impl Task {
         }
     }
 
+    pub fn set_unit_name(&mut self, s: String) {
+        if let ValueEq::Cont(ref mut l) = &mut self.metadata.value {
+            l.unit_name = Some(s);
+            return;
+        }
+
+        panic!();
+    }
+
     pub fn set_units(&mut self, units: f32) {
         if let ValueEq::Cont(ref mut l) = &mut self.metadata.value {
             l.daily_units = units;
