@@ -28,12 +28,10 @@ struct State {
 
 impl State {
     fn load() -> Self {
-        log("lets load");
-        let s = Self {
+        log("loading state object");
+        Self {
             inner: Arc::new(Mutex::new(StateInner::load())),
-        };
-        log("ok loaded lol");
-        s
+        }
     }
 
     fn auth_user(&self) -> Option<AuthUser> {

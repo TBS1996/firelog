@@ -42,3 +42,15 @@ pub fn value_since(s: &str) -> Duration {
         _ => panic!(),
     }
 }
+
+pub fn format_float(f: f32) -> String {
+    if f < 10. {
+        format!("{:.3}", f)
+    } else if f < 100. {
+        format!("{:.2}", f)
+    } else if f < 1000. {
+        format!("{:.1}", f)
+    } else {
+        format!("{}", f as u32)
+    }
+}

@@ -13,7 +13,7 @@ pub fn Home() -> Element {
 
     let mut tasks = state.inner.lock().unwrap().tasks.clone();
     let mut value_stuff = state.inner.lock().unwrap().value_stuff.clone();
-    let valueform = format!("💸{:.2}", value_stuff);
+    let valueform = format!("💸{}", utils::format_float(value_stuff()));
     let mut auth = state.inner.lock().unwrap().auth_status.clone();
     let is_syncing = state.inner.lock().unwrap().is_syncing.clone();
     let mut selected_value = state.inner.lock().unwrap().selected_dur.clone();
@@ -108,9 +108,6 @@ pub fn Home() -> Element {
                 div {
                     display: "flex",
                     flex_direction: "row",
-
-                //    { tooltip(&valueform, "how much money you've 'earned'") }
-
 
                     div {
                         class: "tooltip-container",

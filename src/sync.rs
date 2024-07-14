@@ -8,14 +8,19 @@ use uuid::Uuid;
 
 #[derive(Default)]
 struct SyncResult {
+    // Tasks that should be upserted
     send_up: Vec<Task>,
+    // Tasks that should be downloaded
     download: HashMap<Uuid, MetaData>,
 }
 
 #[derive(Default, Debug)]
 struct Syncer {
+    // 'Task' is from cache, 'MetaData' is from the server.
     pairs: Vec<(Task, MetaData)>,
+    // Tasks that are new from server and was not present in the cache
     new_from_server: HashMap<Uuid, MetaData>,
+    // Tasks that were not found on the server but were in the cache
     new_offline: Vec<Task>,
 }
 

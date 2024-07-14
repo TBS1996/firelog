@@ -224,10 +224,10 @@ impl TaskProp {
     fn from_task(task: &Task) -> Self {
         Self {
             name: task.metadata.name.clone(),
-            priority: format!("{:.2}", task.priority()),
+            priority: utils::format_float(task.priority()),
             id: task.id,
             disc: task.is_disc(),
-            value: format!("{:.2}", task.value()),
+            value: utils::format_float(task.value()),
         }
     }
 }
