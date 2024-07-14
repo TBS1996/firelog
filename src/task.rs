@@ -15,7 +15,7 @@ use crate::sync::LogSyncRes;
 use crate::{log, log_to_console, utils, State};
 
 const DEFAULT_SLOPE: f32 = std::f32::consts::E + 1.;
-type TaskID = Uuid;
+pub type TaskID = Uuid;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
 pub struct LogRecord {
@@ -306,7 +306,7 @@ impl Task {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct TaskLog(pub Vec<LogRecord>);
+pub struct TaskLog(Vec<LogRecord>);
 
 impl TaskLog {
     fn new(&mut self, record: LogRecord) {
@@ -339,10 +339,7 @@ impl TaskLog {
 
         let offline_logs = TaskLog::load_logs(id).await;
         let online_logs = {
-            let val = firebase::load_logs_for_task(uid.clone(), id)
-                .await
-                .await
-                .unwrap();
+            let val = firebase::load_logs_for_task(uid.clone(), id).await.unwrap();
 
             Self::from_jsvalue(val)
         };
@@ -385,10 +382,10 @@ impl TaskLog {
     pub fn from_jsvalue(val: JsValue) -> Self {
         let mut logs = vec![];
         let val: serde_json::Value = serde_wasm_bindgen::from_value(val).unwrap();
-        let mm = val.as_array().unwrap().clone();
+        let arr = val.as_array().unwrap().clone();
 
-        for x in mm {
-            let ts: u64 = x
+        for el in arr {
+            let ts: u64 = el
                 .as_object()
                 .unwrap()
                 .get("timestamp")
@@ -399,11 +396,8 @@ impl TaskLog {
                 .unwrap();
 
             let ts = UnixTime::from_secs(ts);
-            log(("X@@@: ", &x));
 
-            let foo = x.as_object().unwrap().get("units").unwrap().as_str();
-
-            let units: f32 = match foo {
+            let units: f32 = match el.as_object().unwrap().get("units").unwrap().as_str() {
                 Some(s) => s.parse().unwrap(),
                 None => 1.,
             };
@@ -451,17 +445,7 @@ impl TaskLog {
         all_logs.insert(id, current);
 
         log("starting save logs");
-        let s = serde_json::to_string(&all_logs).unwrap();
-
-        let storage: Storage = window()
-            .expect("no global `window` exists")
-            .local_storage()
-            .expect("no local storage")
-            .expect("local storage unavailable");
-
-        storage
-            .set_item("logs", &s)
-            .expect("Unable to set item in local storage");
+        cache::save_logs(all_logs);
         log_to_console("Stored logs in local storage");
     }
 }

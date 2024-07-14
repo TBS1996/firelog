@@ -5,7 +5,6 @@ use crate::{log, State};
 use dioxus::prelude::*;
 use std::collections::HashMap;
 use uuid::Uuid;
-use wasm_bindgen::prelude::*;
 
 #[derive(Default)]
 struct SyncResult {
@@ -79,8 +78,7 @@ pub fn sync_tasks(mut is_syncing: Signal<bool>) {
         return;
     };
 
-    let task_future =
-        wasm_bindgen_futures::JsFuture::from(firebase::loadAllTasks(&JsValue::from_str(&user.uid)));
+    let task_future = firebase::load_all_tasks(&user);
     let offline_tasks = Tasks::load_offline();
 
     wasm_bindgen_futures::spawn_local(async move {

@@ -41,7 +41,7 @@ impl AuthUser {
         let wtf: serde_json::Value = JsValueSerdeExt::into_serde(&val).unwrap();
         let obj = wtf.as_object().unwrap();
         let uid = obj.get("uid").unwrap().as_str().unwrap().to_owned();
-        cache::save("uid", &uid);
+        cache::save_uid(&uid);
 
         Self { uid }
     }

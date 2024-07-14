@@ -4,12 +4,13 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
 use crate::task::LogRecord;
+use crate::AuthUser;
 use crate::Task;
 
 #[wasm_bindgen(module = "/assets/firestore.js")]
 extern "C" {
     fn upsertFirestoreTask(user_id: &JsValue, id: &JsValue, task: &JsValue) -> Promise;
-    pub fn loadAllTasks(user_id: &JsValue) -> Promise;
+    fn loadAllTasks(user_id: &JsValue) -> Promise;
     fn addFirestoreTaskLog(
         user_id: &JsValue,
         task_id: &JsValue,
@@ -17,19 +18,30 @@ extern "C" {
         log_factor: &JsValue,
     ) -> Promise;
     fn loadLogsForTask(user_id: &JsValue, task_id: &JsValue) -> Promise;
-    pub fn isUserAuthenticated() -> Promise;
-    pub fn signInWithGoogle() -> Promise;
+    fn isUserAuthenticated() -> Promise;
+    fn signInWithGoogle() -> Promise;
     fn signOutUser() -> Promise;
     fn xonAuthStateChanged(callback: &JsValue);
     fn getCurrentUser() -> JsValue;
 }
 
-pub async fn is_authed() -> JsFuture {
+pub fn sign_in_google() -> JsFuture {
+    let promise = signInWithGoogle();
+    wasm_bindgen_futures::JsFuture::from(promise)
+}
+
+pub fn load_all_tasks(user: &AuthUser) -> JsFuture {
+    let uid = JsValue::from_str(&user.uid);
+    let promise = loadAllTasks(&uid);
+    wasm_bindgen_futures::JsFuture::from(promise)
+}
+
+pub fn is_authed() -> JsFuture {
     let promise = isUserAuthenticated();
     wasm_bindgen_futures::JsFuture::from(promise)
 }
 
-pub async fn load_logs_for_task(user_id: String, task_id: Uuid) -> JsFuture {
+pub fn load_logs_for_task(user_id: String, task_id: Uuid) -> JsFuture {
     let task_id_str = task_id.to_string();
     let user_id = JsValue::from_str(&user_id);
     let task_id = JsValue::from_str(&task_id_str);

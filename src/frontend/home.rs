@@ -67,8 +67,7 @@ pub fn Home() -> Element {
                         button {
                             class: "emoji-button",
                             onclick: move |_| {
-                                let promise = firebase::signInWithGoogle();
-                                let future = wasm_bindgen_futures::JsFuture::from(promise);
+                                let future = firebase::sign_in_google();
                                 wasm_bindgen_futures::spawn_local(async move{
                                     let val = future.await.unwrap();
                                     let user = AuthUser::from_jsvalue(val);
