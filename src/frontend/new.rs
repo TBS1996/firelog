@@ -15,59 +15,49 @@ pub fn New() -> Element {
     log("neww");
 
     rsx! {
+
         div {
             display: "flex",
-            justify_content: "center",
-            align_items: "center",
-            height: "100vh",
+            flex_direction: "row",
+            button {
+                class: "emoji-button",
+                onclick: move |_| {
+                    navigator.replace( Route::Home{} );
+                },
 
-            div {
-                padding: "20px",
-
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    button {
-                        class: "emoji-button",
-                        onclick: move |_| {
-                            navigator.replace( Route::Home{} );
-                        },
-
-                        img {
-                            width: "34px",
-                            height: "34px",
-                            src: "returning.svg",
-                        }
-                    }
-
-
-                    select {
-                        class: "dropdown",
-                        value: "{selected_value}",
-                        onchange: move |e| {
-                            log("foo");
-                            log(&e);
-                            let s = e.value().clone();
-                            log("baz");
-                            log(&s);
-                            *selected_value.write() = s;
-                            let x = selected_value.read();
-                            log("qux");
-                            log(x);
-                            log("bar");
-
-                        },
-                        option { value: "disc", "Discrete" },
-                        option { value: "cont", "Continuous" },
-                    }
-                }
-
-                if *selected_value.read() == "disc" {
-                    { Disc() }
-                } else {
-                    { Cont() }
+                img {
+                    width: "34px",
+                    height: "34px",
+                    src: "returning.svg",
                 }
             }
+
+
+            select {
+                class: "dropdown",
+                value: "{selected_value}",
+                onchange: move |e| {
+                    log("foo");
+                    log(&e);
+                    let s = e.value().clone();
+                    log("baz");
+                    log(&s);
+                    *selected_value.write() = s;
+                    let x = selected_value.read();
+                    log("qux");
+                    log(x);
+                    log("bar");
+
+                },
+                option { value: "disc", "Discrete" },
+                option { value: "cont", "Continuous" },
+            }
+        }
+
+        if *selected_value.read() == "disc" {
+            { Disc() }
+        } else {
+            { Cont() }
         }
     }
 }

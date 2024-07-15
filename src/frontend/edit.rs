@@ -45,52 +45,39 @@ pub fn Editcont(id: Uuid) -> Element {
     rsx! {
         div {
             display: "flex",
-            justify_content: "center",
-            align_items: "center",
-            height: "100vh",
+            flex_direction: "row",
+            justify_content: "space-between",
+            width: "200px",
 
-
-            div {
-                padding: "20px",
-
-
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    width: "200px",
-
-            button {
-                class: "emoji-button",
-                onclick: move |_| {
-                    navigator.replace(Route::Home{});
-                },
-                img {
-                    width: "34px",
-                    height: "34px",
-                    src: "{back_str()}",
-                }
-            }
-            button {
-                class: "emoji-button",
-                onclick: move |_| {
-                    Tasks::load_offline().delete_task(id);
-                    State::refresh();
-                    navigator.replace(Route::Home{});
-                },
-                img {
-                    width: "34px",
-                    height: "34px",
-                    src: "{delete_str()}",
-                }
-
-            }
-                }
-
-            { form }
-
-            }
+    button {
+        class: "emoji-button",
+        onclick: move |_| {
+            navigator.replace(Route::Home{});
+        },
+        img {
+            width: "34px",
+            height: "34px",
+            src: "{back_str()}",
         }
+    }
+    button {
+        class: "emoji-button",
+        onclick: move |_| {
+            Tasks::load_offline().delete_task(id);
+            State::refresh();
+            navigator.replace(Route::Home{});
+        },
+        img {
+            width: "34px",
+            height: "34px",
+            src: "{delete_str()}",
+        }
+
+    }
+        }
+
+    { form }
+
     }
 }
 
@@ -140,53 +127,40 @@ pub fn Edit(id: Uuid) -> Element {
     };
 
     rsx! {
-
-
         div {
             display: "flex",
-            justify_content: "center",
-            align_items: "center",
-            height: "100vh",
+            flex_direction: "row",
+            justify_content: "space-between",
+            width: "200px",
 
-
-            div {
-                padding: "20px",
-                div {
-                    display: "flex",
-                    flex_direction: "row",
-                    justify_content: "space-between",
-                    width: "200px",
-
-                    button {
-                        class: "emoji-button",
-                        onclick: move |_| {
-                            navigator.replace(Route::Home{});
-                        },
-                        img {
-                            width: "34px",
-                            height: "34px",
-                            src: "{back_str()}",
-                        }
-                    }
-                    button {
-                        class: "emoji-button",
-                        margin_left: "20px",
-                        onclick: move |_| {
-                            Tasks::load_offline().delete_task(id);
-                            State::refresh();
-                            navigator.replace(Route::Home{});
-                        },
-                        img {
-                            width: "34px",
-                            height: "34px",
-                            src: "{delete_str()}",
-                        }
-                    }
+            button {
+                class: "emoji-button",
+                onclick: move |_| {
+                    navigator.replace(Route::Home{});
+                },
+                img {
+                    width: "34px",
+                    height: "34px",
+                    src: "{back_str()}",
                 }
-
-            { form }
-
+            }
+            button {
+                class: "emoji-button",
+                margin_left: "20px",
+                onclick: move |_| {
+                    Tasks::load_offline().delete_task(id);
+                    State::refresh();
+                    navigator.replace(Route::Home{});
+                },
+                img {
+                    width: "34px",
+                    height: "34px",
+                    src: "{delete_str()}",
+                }
             }
         }
+
+    { form }
+
     }
 }

@@ -72,6 +72,7 @@ impl AuthStatus {
 
 #[derive(Clone, Routable, Debug, PartialEq)]
 pub enum Route {
+    #[layout(Wrapper)]
     #[route("/")]
     Home {},
     #[route("/new")]
@@ -84,6 +85,54 @@ pub enum Route {
     Edit { id: Uuid },
     #[route("/editcont/:id")]
     Editcont { id: Uuid },
+}
+
+#[component]
+fn Wrapper() -> Element {
+    rsx! {
+        div {
+            display: "flex",
+            justify_content: "center",
+            align_items: "center",
+            height: "100vh",
+            flex_direction: "column",
+
+            Outlet::<Route> {}
+
+            div {
+                display: "flex",
+                justify_content: "center",
+                margin_top: "50px",
+                { footer() }
+            }
+        }
+    }
+}
+
+pub fn footer() -> Element {
+    rsx! {
+        div {
+            height: "20px",
+            display: "flex",
+            flex_direction: "row",
+            font_size: "1.0em",
+            justify_items: "center",
+            color: "#666",
+            margin_bottom: "10px",
+            div {
+                Link {
+                    to: Route::About {},
+                    "about!"
+                }
+                a {
+                    margin_left: "20px",
+                    href: "https://github.com/tbs1996/firelog/issues",
+                    target: "_blank",
+                    "feedback"
+                }
+            }
+        }
+    }
 }
 
 impl Route {
