@@ -475,25 +475,15 @@ impl LogPriority {
         }
     }
 
-    fn common_factor(unity: f32, twonity: f32) -> f32 {
-        let ratio = twonity / unity;
-        (ratio - 2.) / unity
-    }
-
-    fn ab(unity: f32, twonity: f32) -> (f32, f32) {
-        let common = Self::common_factor(unity, twonity);
-        let a = common;
-        let b = unity * common + 1.;
-        (a, b)
-    }
-
     fn value(&self, t: Duration) -> f32 {
-        let t = t.as_secs_f32() / 86400.;
-        let t1 = self.interval.as_secs_f32() / 86400.;
-        let t2 = t1 * self.slope;
+        let ratio = t.as_secs_f32() / self.interval.as_secs_f32();
+        self.factor * val_calc::value(ratio, self.slope)
+    }
+}
 
-        let (a, b) = Self::ab(t1, t2);
-        (a * t + 1.).log(b) * self.factor
+pub mod val_calc {
+    pub fn value(ratio: f32, slope: f32) -> f32 {
+        ((slope - 2.) * ratio + 1.).log(slope - 1.)
     }
 }
 
@@ -543,7 +533,8 @@ impl Contask {
     }
 
     fn value(&self, logs: &TaskLog, current: UnixTime) -> f32 {
-        self.factor * self.ratio(logs, current)
+        let ratio = self.ratio(logs, current);
+        self.factor * val_calc::value(ratio, DEFAULT_SLOPE)
     }
 
     fn ratio(&self, logs: &TaskLog, current: UnixTime) -> f32 {
@@ -559,5 +550,18 @@ impl Contask {
         // We add the daily_units so that when you create the task for the first time the avg isnt
         // 0 and thus the value infinite.
         (total_units + self.daily_units) / (days_elapsed + 1.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_log() {
+        let day = Duration::from_secs(86400);
+        let x = LogPriority::new(1.0, day);
+        let y = x.value(day);
+        assert_eq!(y, 1.0);
     }
 }
