@@ -297,17 +297,19 @@ impl Task {
 
         let mut inner = vec![];
         for log in &tasklog.0 {
-            let time = log.time;
-            if time > cutoff {
-                let value = self.metadata.value.value(
-                    &TaskLog::newlol(inner.clone()),
-                    self.metadata.created,
-                    time,
-                );
+            for _ in 0..(log.units as u32) {
+                let time = log.time;
+                if time > cutoff {
+                    let value = self.metadata.value.value(
+                        &TaskLog::newlol(inner.clone()),
+                        self.metadata.created,
+                        time,
+                    );
 
-                value_accrued += value;
+                    value_accrued += value;
+                }
+                inner.push(log.clone());
             }
-            inner.push(log.clone());
         }
 
         value_accrued
