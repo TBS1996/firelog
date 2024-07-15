@@ -112,24 +112,15 @@ fn Wrapper() -> Element {
 pub fn footer() -> Element {
     rsx! {
         div {
-            height: "20px",
-            display: "flex",
-            flex_direction: "row",
-            font_size: "1.0em",
-            justify_items: "center",
-            color: "#666",
-            margin_bottom: "10px",
-            div {
-                Link {
-                    to: Route::About {},
-                    "about!"
-                }
-                a {
-                    margin_left: "20px",
-                    href: "https://github.com/tbs1996/firelog/issues",
-                    target: "_blank",
-                    "feedback"
-                }
+            Link {
+                to: Route::About {},
+                "about"
+            }
+            a {
+                margin_left: "20px",
+                href: "https://github.com/tbs1996/firelog/issues",
+                target: "_blank",
+                "feedback"
             }
         }
     }
