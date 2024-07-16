@@ -95,15 +95,20 @@ fn Wrapper() -> Element {
             justify_content: "center",
             align_items: "center",
             height: "100vh",
+            width: "100vw",
             flex_direction: "column",
 
-            Outlet::<Route> {}
-
             div {
-                display: "flex",
-                justify_content: "center",
-                margin_top: "50px",
-                { footer() }
+                width: "300px",
+
+                Outlet::<Route> {}
+
+                div {
+                    display: "flex",
+                    justify_content: "center",
+                    margin_top: "50px",
+                    { footer() }
+                }
             }
         }
     }
@@ -154,6 +159,8 @@ fn wtf(
     let len = inputs.len();
     rsx! {
         form {
+            display: "flex",
+            align_items: "center",
             onsubmit: move |event| {
                 let strs = {
                     let data = event.data().values();

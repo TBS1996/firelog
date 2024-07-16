@@ -19,6 +19,8 @@ pub fn New() -> Element {
         div {
             display: "flex",
             flex_direction: "row",
+            justify_content: "space-between",
+
             button {
                 class: "emoji-button",
                 onclick: move |_| {

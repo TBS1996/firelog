@@ -26,7 +26,6 @@ pub fn Home() -> Element {
             display: "flex",
             flex_direction: "row",
             margin_bottom: "20px",
-            width: "250px",
             justify_content: "space-between",
 
             if (*auth.read()).is_authed(){
@@ -130,7 +129,6 @@ pub fn Home() -> Element {
             flex_direction: "column",
             max_height: "60vh",
             overflow_y: "auto",
-            width: "250px",
 
             li {
                 p {

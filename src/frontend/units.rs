@@ -23,7 +23,6 @@ pub fn Units(id: Uuid) -> Element {
         div {
             display: "flex",
             flex_direction: "row",
-            width: "500px",
             align_items: "center",
             justify_content: "center",
 
@@ -49,7 +48,6 @@ pub fn Units(id: Uuid) -> Element {
         }
 
         form {
-            width: "500px",
             display: "flex",
             flex_direction: "row",
             align_items: "center",
