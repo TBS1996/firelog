@@ -14,12 +14,14 @@ mod about;
 mod edit;
 mod home;
 mod new;
+mod stats;
 mod units;
 
 use about::*;
 use edit::*;
 use home::*;
 use new::*;
+use stats::*;
 use units::*;
 
 pub fn App() -> Element {
@@ -85,6 +87,8 @@ pub enum Route {
     Edit { id: Uuid },
     #[route("/editcont/:id")]
     Editcont { id: Uuid },
+    #[route("/stats/:id")]
+    Stats { id: Uuid },
 }
 
 #[component]
@@ -140,6 +144,7 @@ impl Route {
             Self::About { .. } => false,
             Self::Edit { .. } => true,
             Self::Editcont { .. } => true,
+            Self::Stats { .. } => true,
         }
     }
 }

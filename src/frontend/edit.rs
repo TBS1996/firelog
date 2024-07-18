@@ -89,17 +89,6 @@ pub fn Edit(id: Uuid) -> Element {
     log(&oldtask);
     let navigator = use_navigator();
 
-    let logstr: Vec<String> = task
-        .log
-        .time_since(utils::current_time())
-        .into_iter()
-        .map(|dur| utils::dur_format(dur))
-        .collect();
-    let logstr = format!("{:?}", logstr);
-    let mut logstr = logstr.replace("\"", "");
-    logstr.pop();
-    logstr.remove(0);
-
     let closure = move |newtask: Option<Task>| {
         let mut oldtask = task.clone();
         let Some(newtask) = newtask else {

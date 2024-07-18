@@ -1,3 +1,4 @@
+use crate::task::TaskLog;
 use js_sys::Date;
 use std::time::Duration;
 
@@ -53,4 +54,17 @@ pub fn format_float(f: f32) -> String {
     } else {
         format!("{}", f as u32)
     }
+}
+
+pub fn logstr(log: &TaskLog) -> String {
+    let logstr: Vec<String> = log
+        .time_since(current_time())
+        .into_iter()
+        .map(|dur| dur_format(dur))
+        .collect();
+    let logstr = format!("{:?}", logstr);
+    let mut logstr = logstr.replace("\"", "");
+    logstr.pop();
+    logstr.remove(0);
+    logstr
 }

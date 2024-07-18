@@ -231,7 +231,17 @@ impl Task {
         }
     }
 
-    pub fn _ratio(&self) -> f32 {
+    #[allow(dead_code)]
+    pub fn daily_avg(&self) -> f32 {
+        if let ValueEq::Cont(l) = &self.metadata.value {
+            return l.daily_average(&self.log, utils::current_time());
+        }
+
+        panic!();
+    }
+
+    #[allow(dead_code)]
+    pub fn ratio(&self) -> f32 {
         if let ValueEq::Cont(l) = &self.metadata.value {
             return l.ratio(&self.log, utils::current_time());
         }
