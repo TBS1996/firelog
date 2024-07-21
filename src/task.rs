@@ -234,7 +234,7 @@ impl Task {
     #[allow(dead_code)]
     pub fn daily_avg(&self) -> f32 {
         if let ValueEq::Cont(l) = &self.metadata.value {
-            return l.daily_average(&self.log, utils::current_time());
+            return l.daily_average(&self.log, utils::current_time(), 0.8);
         }
 
         panic!();
@@ -550,30 +550,158 @@ impl Contask {
     }
 
     fn ratio(&self, logs: &TaskLog, current: UnixTime) -> f32 {
-        let avg = self.daily_average(logs, current);
+        let avg = self.daily_average(logs, current, 0.8);
         log(("avg: ", avg));
         self.daily_units / avg
     }
 
-    fn daily_average(&self, logs: &TaskLog, current: UnixTime) -> f32 {
-        let days_elapsed = (current - self.created).as_secs_f32() / 86400.;
-        let total_units: f32 = logs.0.iter().map(|log| log.units).sum();
+    fn daily_average(&self, logs: &TaskLog, current: UnixTime, lambda: f32) -> f32 {
+        let mut logs = logs.0.clone();
+        logs.insert(
+            0,
+            LogRecord {
+                units: self.daily_units,
+                time: self.created,
+            },
+        );
 
-        // We add the daily_units so that when you create the task for the first time the avg isnt
-        // 0 and thus the value infinite.
-        (total_units + self.daily_units) / (days_elapsed + 1.0)
+        let day_stuff = day_stuff(&logs, current);
+
+        compute_weighted_average(&day_stuff, lambda)
     }
+}
+
+fn day_stuff(logs: &Vec<LogRecord>, current: UnixTime) -> Vec<f32> {
+    let unit_length = 86400;
+
+    if logs.is_empty() {
+        return vec![];
+    }
+
+    let start_day = logs.first().unwrap().time.as_secs() / unit_length;
+    let end_day = current.as_secs() / unit_length;
+    let days_elapsed = (end_day - start_day + 1) as usize;
+    let mut out = vec![0.0; days_elapsed];
+
+    for log in logs {
+        let log_day = log.time.as_secs() / unit_length;
+        let idx = (log_day - start_day) as usize;
+        if let Some(inner) = out.get_mut(idx) {
+            *inner += log.units;
+        } else {
+            let s = format!(
+                "logs: {:?}, bad log: {:?}, cur time: {:?}",
+                logs, log, current
+            );
+            log_to_console(s);
+        }
+    }
+
+    out
+}
+
+fn compute_weighted_average(daily_units: &[f32], lambda: f32) -> f32 {
+    let mut weighted_sum = 0.0;
+    let mut weight_total = 0.0;
+    let days_elapsed = daily_units.len();
+
+    for (day, &units) in daily_units.iter().enumerate() {
+        let age_in_days = (days_elapsed - day) as f32;
+        let weight = (-lambda * age_in_days).exp();
+
+        weighted_sum += units * weight;
+        weight_total += weight;
+    }
+
+    if weight_total == 0.0 {
+        return 0.0;
+    }
+
+    weighted_sum / weight_total
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn dummylogs() -> Vec<LogRecord> {
+        vec![
+            LogRecord {
+                time: UnixTime::from_secs(86400 * 1),
+                units: 10.0,
+            },
+            LogRecord {
+                time: UnixTime::from_secs(86400 * 2 + 10),
+                units: 20.0,
+            },
+            LogRecord {
+                time: UnixTime::from_secs(86400 * 2),
+                units: 20.0,
+            },
+            LogRecord {
+                time: UnixTime::from_secs(86400 * 3),
+                units: 30.0,
+            },
+            LogRecord {
+                time: UnixTime::from_secs(86400 * 5),
+                units: 60.0,
+            },
+        ]
+    }
+
     #[test]
-    fn test_log() {
-        let day = Duration::from_secs(86400);
-        let x = LogPriority::new(1.0, day);
-        let y = x.value(day);
-        assert_eq!(y, 1.0);
+    fn test_day_stuff() {
+        let current_time = UnixTime::from_secs(86400 * 8);
+        let logs = dummylogs();
+
+        let result = day_stuff(&logs, current_time);
+        assert_eq!(result, vec![10.0, 40.0, 30.0, 0.0, 60.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn loltest_avg_stuff() {
+        let logs = vec![LogRecord {
+            time: UnixTime::from_secs(0),
+            units: 10.,
+        }];
+
+        let decay = 0.8;
+        let mut prev = 3.5073876 / decay;
+
+        for day in 0..10 {
+            let current_time = UnixTime::from_secs(86400 * day);
+            let result = day_stuff(&logs, current_time);
+            let avg = compute_weighted_average(&result, decay);
+
+            //assert_eq!(prev * decay, avg);
+            prev = avg;
+
+            let s = format!("decay: {}, day: {}, avg: {}", decay, day, avg);
+            dbg!(s);
+        }
+
+        panic!();
+    }
+
+    //#[test]
+    fn test_avg_stuff() {
+        let logs = dummylogs();
+        let decay = 0.8;
+        let mut prev = 3.5073876 / decay;
+
+        for i in 0..10 {
+            let day = i + 8;
+            let current_time = UnixTime::from_secs(86400 * day);
+            let result = day_stuff(&logs, current_time);
+            let avg = compute_weighted_average(&result, decay);
+
+            //assert_eq!(prev * decay, avg);
+            prev = avg;
+
+            let s = format!("decay: {}, day: {}, avg: {}", decay, day, avg);
+            dbg!(s);
+        }
+
+        panic!();
     }
 }

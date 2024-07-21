@@ -49,10 +49,16 @@ pub fn format_float(f: f32) -> String {
         format!("{:.3}", f)
     } else if f < 100. {
         format!("{:.2}", f)
-    } else if f < 1000. {
+    } else if f < 1_000. {
         format!("{:.1}", f)
+    } else if f < 10_000. {
+        format!("{}.", f as u32)
+    } else if f < 100_000. {
+        let f = f / 100.;
+        format!("{:.1}k", f)
     } else {
-        format!("{}", f as u32)
+        let f = f / 1000.;
+        format!("{}k", f)
     }
 }
 
